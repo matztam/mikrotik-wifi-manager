@@ -27,7 +27,6 @@ const char* PROFILE_COMMENT_PREFIX = "wifi-manager:ssid=";
 
 const char* CONFIG_FILE_PATH = "/config.json";
 const char* CAPTIVE_PORTAL_SSID = "MikroTikSetup";
-const char* CAPTIVE_PORTAL_PASSWORD = "mikrotik123";
 const unsigned long WIFI_INITIAL_CONNECT_TIMEOUT_MS = 10000;
 const unsigned long WIFI_RECONNECT_INTERVAL_MS = 30000;
 
@@ -1096,7 +1095,7 @@ void startCaptivePortal() {
   if (captivePortalActive) return;
   Serial.printf("Starting captive portal: SSID='%s'\n", CAPTIVE_PORTAL_SSID);
   WiFi.mode(WIFI_AP_STA);
-  WiFi.softAP(CAPTIVE_PORTAL_SSID, CAPTIVE_PORTAL_PASSWORD);
+  WiFi.softAP(CAPTIVE_PORTAL_SSID);
   captivePortalActive = true;
 }
 
