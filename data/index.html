@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MikroTik WiFi Manager</title>
+<title>MikroTik WiFi Manager</title>
     <link rel="icon" type="image/png" href="/favicon.png">
     <link rel="icon" type="image/x-icon" href="/favicon.ico">
     <link rel="stylesheet" href="/style.css">
@@ -12,51 +12,51 @@
     <div id="toast-container" class="toast hidden"></div>
     <div class="container">
         <div class="card">
-            <h2 data-i18n="status.title">Verbindungsstatus</h2>
+            <h2 data-i18n="status.title">status.title</h2>
             <div id="connection-status" class="status-disconnected">
                 <span class="status-indicator"></span>
-                <span id="status-text" data-i18n="status.text.disconnected">Nicht verbunden</span>
+                <span id="status-text" data-i18n="status.text.disconnected">status.text.disconnected</span>
             </div>
             <div id="connection-details" style="display: none;"></div>
-            <button id="disconnect-btn" class="btn btn-danger" style="display: none;" data-i18n="button.disconnect">Verbindung trennen</button>
+            <button id="disconnect-btn" class="btn btn-danger" style="display: none;" data-i18n="button.disconnect">button.disconnect</button>
         </div>
 
         <div id="connect-section" class="card" style="display: none;">
-            <h2 data-i18n="connect.title">Verbinden</h2>
+            <h2 data-i18n="connect.title">connect.title</h2>
             <div class="connect-details">
                 <div class="connect-row">
-                    <label class="connect-label" data-i18n="label.ssid">SSID</label>
+                    <label class="connect-label" data-i18n="label.ssid">label.ssid</label>
                     <div class="connect-value" id="selected-ssid">-</div>
                 </div>
                 <div class="connect-row" id="password-field" style="display: none;">
-                    <label class="connect-label" for="password-input" data-i18n="label.password">Passwort</label>
-                    <input type="text" id="password-input" class="input-field" placeholder="Passwort eingeben" data-i18n-placeholder="input.password.placeholder.required">
+                    <label class="connect-label" for="password-input" data-i18n="label.password">label.password</label>
+                    <input type="text" id="password-input" class="input-field" placeholder="input.password.placeholder.required" data-i18n-placeholder="input.password.placeholder.required">
                 </div>
                 <div class="button-group">
-                    <button id="connect-btn" class="btn btn-success" data-i18n="button.connect">Verbinden</button>
-                    <button id="cancel-btn" class="btn btn-secondary" data-i18n="button.cancel">Abbrechen</button>
+                    <button id="connect-btn" class="btn btn-success" data-i18n="button.connect">button.connect</button>
+                    <button id="cancel-btn" class="btn btn-secondary" data-i18n="button.cancel">button.cancel</button>
                 </div>
             </div>
         </div>
 
         <div class="card">
-            <h2 data-i18n="band.title">Frequenzband</h2>
+            <h2 data-i18n="band.title">band.title</h2>
             <div class="band-selector" id="band-selector">
                 <!-- Buttons werden dynamisch generiert -->
             </div>
         </div>
 
         <div class="card">
-            <h2 data-i18n="networks.title">Verfügbare Netzwerke</h2>
-            <button id="scan-btn" class="btn btn-primary" data-i18n="button.scan">Nach Netzwerken suchen</button>
+            <h2 data-i18n="networks.title">networks.title</h2>
+            <button id="scan-btn" class="btn btn-primary" data-i18n="button.scan">button.scan</button>
             <div class="filter-group">
-                <button class="filter-btn active" data-filter="all" data-i18n="filter.all">Alle</button>
-                <button class="filter-btn" data-filter="secured" data-i18n="filter.secured">Verschlüsselt</button>
-                <button class="filter-btn" data-filter="open" data-i18n="filter.open">Offen</button>
+                <button class="filter-btn active" data-filter="all" data-i18n="filter.all">filter.all</button>
+                <button class="filter-btn" data-filter="secured" data-i18n="filter.secured">filter.secured</button>
+                <button class="filter-btn" data-filter="open" data-i18n="filter.open">filter.open</button>
             </div>
             <div id="scan-status" style="display: none; text-align: center; padding: 32px;">
                 <div class="loading-spinner"></div>
-                <p data-i18n="scan.status.searching">Suche nach Netzwerken...</p>
+                <p data-i18n="scan.status.searching">scan.status.searching</p>
             </div>
             <div id="networks-list" style="margin-top: 16px;"></div>
         </div>
