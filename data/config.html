@@ -64,10 +64,13 @@
             <div class="form-section">
                 <h3 data-i18n="config.section.bands">config.section.bands</h3>
                 <label class="connect-label" for="band-2g" data-i18n="config.label.band2">config.label.band2</label>
-                <input type="text" id="band-2g" class="input-field" placeholder="2ghz-b/g/n">
+                <select id="band-2g" class="input-field"></select>
 
                 <label class="connect-label" for="band-5g" data-i18n="config.label.band5">config.label.band5</label>
-                <input type="text" id="band-5g" class="input-field" placeholder="5ghz-a/n">
+                <select id="band-5g" class="input-field"></select>
+
+                <label class="connect-label" for="scan-duration" data-i18n="config.label.scanDuration">config.label.scanDuration</label>
+                <input type="number" id="scan-duration" class="input-field" min="1" step="1" placeholder="10">
             </div>
 
             <div class="button-group">

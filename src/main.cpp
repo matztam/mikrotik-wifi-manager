@@ -37,10 +37,10 @@ struct RuntimeConfig {
   String mikrotikIp;
   String mikrotikUser;
   String mikrotikPass;
-  String mikrotikToken;
   String mikrotikWlanInterface;
   String band2ghz;
   String band5ghz;
+  int scanDurationSeconds;
 };
 
 RuntimeConfig runtimeConfig;
@@ -97,10 +97,10 @@ void applyDefaultConfig(RuntimeConfig& cfg) {
   cfg.mikrotikIp = MIKROTIK_IP;
   cfg.mikrotikUser = MIKROTIK_USER;
   cfg.mikrotikPass = MIKROTIK_PASS;
-  cfg.mikrotikToken = MIKROTIK_TOKEN;
   cfg.mikrotikWlanInterface = MIKROTIK_WLAN_INTERFACE;
   cfg.band2ghz = BAND_2GHZ;
   cfg.band5ghz = BAND_5GHZ;
+  cfg.scanDurationSeconds = SCAN_DURATION_SECONDS;
 }
 
 bool loadRuntimeConfigFromFile() {
@@ -139,12 +139,17 @@ bool loadRuntimeConfigFromFile() {
   runtimeConfig.mikrotikIp = mikrotikObj["ip"] | runtimeConfig.mikrotikIp;
   runtimeConfig.mikrotikUser = mikrotikObj["user"] | runtimeConfig.mikrotikUser;
   runtimeConfig.mikrotikPass = mikrotikObj["pass"] | runtimeConfig.mikrotikPass;
-  runtimeConfig.mikrotikToken = mikrotikObj["token"] | runtimeConfig.mikrotikToken;
   runtimeConfig.mikrotikWlanInterface = mikrotikObj["wlan_interface"] | runtimeConfig.mikrotikWlanInterface;
 
   JsonObject bandObj = doc["bands"].as<JsonObject>();
   runtimeConfig.band2ghz = bandObj["band_2ghz"] | runtimeConfig.band2ghz;
   runtimeConfig.band5ghz = bandObj["band_5ghz"] | runtimeConfig.band5ghz;
+
+  JsonObject scanObj = doc["scan"].as<JsonObject>();
+  runtimeConfig.scanDurationSeconds = scanObj["duration_seconds"] | runtimeConfig.scanDurationSeconds;
+  if (runtimeConfig.scanDurationSeconds <= 0) {
+    runtimeConfig.scanDurationSeconds = SCAN_DURATION_SECONDS;
+  }
 
   return true;
 }
@@ -165,12 +170,14 @@ bool saveRuntimeConfigToFile() {
   mikrotikObj["ip"] = runtimeConfig.mikrotikIp;
   mikrotikObj["user"] = runtimeConfig.mikrotikUser;
   mikrotikObj["pass"] = runtimeConfig.mikrotikPass;
-  mikrotikObj["token"] = runtimeConfig.mikrotikToken;
   mikrotikObj["wlan_interface"] = runtimeConfig.mikrotikWlanInterface;
 
   JsonObject bandObj = doc.createNestedObject("bands");
   bandObj["band_2ghz"] = runtimeConfig.band2ghz;
   bandObj["band_5ghz"] = runtimeConfig.band5ghz;
+
+  JsonObject scanObj = doc.createNestedObject("scan");
+  scanObj["duration_seconds"] = runtimeConfig.scanDurationSeconds;
 
   File file = LittleFS.open(CONFIG_FILE_PATH, "w");
   if (!file) {
@@ -269,13 +276,9 @@ String mikrotikRequest(String method, String path, String jsonBody = "", int tim
   http.begin(url);
 
   // Authentication: prefer API token, fallback to Basic Auth
-  if (runtimeConfig.mikrotikToken.length() > 0) {
-    http.addHeader("Authorization", "Bearer " + runtimeConfig.mikrotikToken);
-  } else {
-    String auth = runtimeConfig.mikrotikUser + ":" + runtimeConfig.mikrotikPass;
-    String authEncoded = base64::encode(auth);
-    http.addHeader("Authorization", "Basic " + authEncoded);
-  }
+  String auth = runtimeConfig.mikrotikUser + ":" + runtimeConfig.mikrotikPass;
+  String authEncoded = base64::encode(auth);
+  http.addHeader("Authorization", "Basic " + authEncoded);
 
   if (jsonBody.length() > 0) {
     http.addHeader("Content-Type", "application/json");
@@ -517,10 +520,10 @@ void handleConfig() {
   StaticJsonDocument<256> doc;
   doc["band_2ghz"] = runtimeConfig.band2ghz;
   doc["band_5ghz"] = runtimeConfig.band5ghz;
-  doc["scan_duration_ms"] = SCAN_DURATION_SECONDS * 1000;
-  doc["scan_min_ready_ms"] = SCAN_DURATION_SECONDS * 1000;
+  doc["scan_duration_ms"] = runtimeConfig.scanDurationSeconds * 1000;
+  doc["scan_min_ready_ms"] = runtimeConfig.scanDurationSeconds * 1000;
   doc["scan_result_grace_ms"] = SCAN_RESULT_GRACE_MS;
-  doc["scan_timeout_ms"] = SCAN_DURATION_SECONDS * 1000 + SCAN_RESULT_GRACE_MS + SCAN_POLL_INTERVAL_MS;
+  doc["scan_timeout_ms"] = runtimeConfig.scanDurationSeconds * 1000 + SCAN_RESULT_GRACE_MS + SCAN_POLL_INTERVAL_MS;
   doc["scan_poll_interval_ms"] = SCAN_POLL_INTERVAL_MS;
   doc["scan_csv_filename"] = SCAN_CSV_FILENAME;
   doc["signal_min_dbm"] = SIGNAL_MIN_DBM;
@@ -542,12 +545,14 @@ void handleSettingsGet() {
   mikrotikObj["ip"] = runtimeConfig.mikrotikIp;
   mikrotikObj["user"] = runtimeConfig.mikrotikUser;
   mikrotikObj["has_password"] = runtimeConfig.mikrotikPass.length() > 0;
-  mikrotikObj["has_token"] = runtimeConfig.mikrotikToken.length() > 0;
   mikrotikObj["wlan_interface"] = runtimeConfig.mikrotikWlanInterface;
 
   JsonObject bandsObj = doc.createNestedObject("bands");
   bandsObj["band_2ghz"] = runtimeConfig.band2ghz;
   bandsObj["band_5ghz"] = runtimeConfig.band5ghz;
+
+  JsonObject scanObj = doc.createNestedObject("scan");
+  scanObj["duration_seconds"] = runtimeConfig.scanDurationSeconds;
 
   JsonObject statusObj = doc.createNestedObject("status");
   statusObj["wifi_connected"] = WiFi.status() == WL_CONNECTED;
@@ -572,6 +577,7 @@ void handleSettingsUpdate() {
   bool wifiChanged = false;
   bool mikrotikChanged = false;
   bool bandsChanged = false;
+  bool scanChanged = false;
 
   JsonObject wifiObj = doc["wifi"].as<JsonObject>();
   if (!wifiObj.isNull()) {
@@ -609,12 +615,6 @@ void handleSettingsUpdate() {
         mikrotikChanged = true;
       }
     }
-    if (mikrotikObj.containsKey("token")) {
-      if (mikrotikObj["token"].is<String>()) {
-        runtimeConfig.mikrotikToken = mikrotikObj["token"].as<String>();
-        mikrotikChanged = true;
-      }
-    }
     if (mikrotikObj.containsKey("wlan_interface")) {
       String newIface = mikrotikObj["wlan_interface"].as<String>();
       newIface.trim();
@@ -636,6 +636,19 @@ void handleSettingsUpdate() {
       newBand5.trim();
       runtimeConfig.band5ghz = newBand5;
       bandsChanged = true;
+    }
+  }
+
+  JsonObject scanObj = doc["scan"].as<JsonObject>();
+  if (!scanObj.isNull()) {
+    if (scanObj.containsKey("duration_seconds")) {
+      int newDuration = scanObj["duration_seconds"] | runtimeConfig.scanDurationSeconds;
+      if (newDuration <= 0) {
+        server.send(400, "application/json", "{\"error\":\"invalid_scan_duration\"}");
+        return;
+      }
+      runtimeConfig.scanDurationSeconds = newDuration;
+      scanChanged = true;
     }
   }
 
@@ -668,6 +681,7 @@ void handleSettingsUpdate() {
   response["wifi_changed"] = wifiChanged;
   response["mikrotik_changed"] = mikrotikChanged;
   response["bands_changed"] = bandsChanged;
+  response["scan_changed"] = scanChanged;
   response["captive_portal"] = captivePortalActive;
 
   String output;
@@ -750,7 +764,7 @@ void handleScanStart() {
   scanState.startTime = millis();
   scanState.band = band;
   scanState.csvFilename = SCAN_CSV_FILENAME;
-  scanState.expectedDurationMs = static_cast<unsigned long>(SCAN_DURATION_SECONDS) * 1000UL;
+  scanState.expectedDurationMs = static_cast<unsigned long>(runtimeConfig.scanDurationSeconds) * 1000UL;
   scanState.minReadyMs = scanState.expectedDurationMs;
   scanState.pollIntervalMs = SCAN_POLL_INTERVAL_MS;
   scanState.resultTimeoutMs = scanState.expectedDurationMs +
@@ -810,7 +824,7 @@ void handleScanResult() {
   // Skip CSV lookup until the expected MikroTik scan duration elapsed
   unsigned long elapsedMs = millis() - scanState.startTime;
   unsigned long minReadyMs = scanState.minReadyMs > 0 ? scanState.minReadyMs
-                                                     : static_cast<unsigned long>(SCAN_DURATION_SECONDS) * 1000UL;
+                                                     : static_cast<unsigned long>(runtimeConfig.scanDurationSeconds) * 1000UL;
   unsigned long timeoutMs = scanState.resultTimeoutMs > 0 ? scanState.resultTimeoutMs
                                                           : (minReadyMs + SCAN_RESULT_GRACE_MS + SCAN_POLL_INTERVAL_MS);
 

@@ -9,9 +9,8 @@ const char* WIFI_PASSWORD = "your-wifi-password";
 
 // MikroTik credentials
 const char* MIKROTIK_IP = "192.168.88.1";
-const char* MIKROTIK_USER = "admin";           // Only for Basic Auth (leave empty when using token)
-const char* MIKROTIK_PASS = "";                // Only for Basic Auth (leave empty when using token)
-const char* MIKROTIK_TOKEN = "";               // REST API token (recommended) - see MIKROTIK-TOKEN-SETUP.md
+const char* MIKROTIK_USER = "admin";           // Basic Auth username
+const char* MIKROTIK_PASS = "";                // Basic Auth password
 
 // MikroTik WLAN interface name (e.g., "wlan1", "wlan2")
 const char* MIKROTIK_WLAN_INTERFACE = "wlan1";

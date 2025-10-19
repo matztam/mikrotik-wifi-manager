@@ -16,16 +16,29 @@ body {
     display: flex;
     gap: 16px;
     padding: 8px 0 24px 0;
+    align-items: center;
 }
 
 .top-nav a {
-    color: #2563eb;
+    color: rgba(255, 255, 255, 0.85);
     text-decoration: none;
     font-weight: 600;
+    padding: 6px 10px;
+    border-radius: 6px;
+    transition: background 0.3s ease, color 0.3s ease;
+    background: rgba(15, 23, 42, 0.2);
+    backdrop-filter: blur(4px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
 .top-nav a:hover {
-    text-decoration: underline;
+    background: rgba(255, 255, 255, 0.3);
+    color: #0f172a;
+}
+
+.top-nav a:focus {
+    outline: 2px solid rgba(255, 255, 255, 0.5);
+    outline-offset: 2px;
 }
 
 .container {
@@ -189,7 +202,9 @@ header h1 {
     font-weight: 600;
     cursor: pointer;
     transition: all 0.3s;
-    width: 100%;
+    flex: 1 1 160px;
+    min-width: 140px;
+    text-align: center;
 }
 
 .btn:hover {
@@ -383,8 +398,8 @@ header h1 {
 }
 
 .button-group {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
+    display: flex;
+    flex-wrap: wrap;
     gap: 12px;
     margin-top: 16px;
 }
@@ -435,6 +450,16 @@ header h1 {
 
 .form-section .input-field {
     margin-bottom: 16px;
+}
+
+.form-section select.input-field {
+    appearance: none;
+    background: white;
+    cursor: pointer;
+}
+
+.form-section select.input-field option {
+    color: #1f2937;
 }
 
 .checkbox-inline {

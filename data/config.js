@@ -45,6 +45,7 @@ const DEFAULT_TRANSLATIONS = {
     "config.label.mikrotikInterface": "MikroTik WLAN Interface",
     "config.label.band2": "2.4 GHz Band",
     "config.label.band5": "5 GHz Band",
+    "config.label.scanDuration": "Scan duration (seconds)",
     "config.button.save": "Save Settings",
     "config.button.cancel": "Cancel",
     "config.status.captive": "Captive portal active. Connect to {ssid} (default IP 192.168.4.1).",
@@ -54,6 +55,7 @@ const DEFAULT_TRANSLATIONS = {
     "config.save.success": "Settings saved. The device is reconnecting.",
     "config.save.failed": "Failed to save settings: {error}",
     "config.validation.ssidRequired": "Wi-Fi SSID is required when saving.",
+    "config.validation.scanDurationInvalid": "Scan duration must be a positive number.",
     "config.clear.wifiPassword": "Clear stored Wi-Fi password",
     "config.clear.mikrotikPassword": "Clear stored MikroTik password",
     "config.clear.mikrotikToken": "Clear stored MikroTik token"
@@ -62,6 +64,18 @@ const DEFAULT_TRANSLATIONS = {
 let translations = { ...DEFAULT_TRANSLATIONS };
 let currentLanguage = 'en';
 let settingsSnapshot = null;
+const PRESET_BANDS = {
+    band2: [
+        '2ghz-b/g/n',
+        '2ghz-g/n',
+        '2ghz-n'
+    ],
+    band5: [
+        '5ghz-a/n',
+        '5ghz-a/n/ac',
+        '5ghz-a/n/ac/ax'
+    ]
+};
 
 function t(key, params = {}) {
     const template = translations[key] ?? key;
@@ -164,6 +178,37 @@ function fillForm(data) {
     const wifiClear = document.getElementById('wifi-clear-password');
     const mikrotikClearPass = document.getElementById('mikrotik-clear-password');
     const mikrotikClearToken = document.getElementById('mikrotik-clear-token');
+    const scanDurationInput = document.getElementById('scan-duration');
+
+    const currentBand2 = data.bands?.band_2ghz || '';
+    const currentBand5 = data.bands?.band_5ghz || '';
+    const currentScanDuration = data.scan?.duration_seconds || '';
+
+    const ensureOptions = (selectEl, options, currentValue) => {
+        selectEl.innerHTML = '';
+        const placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.disabled = true;
+        placeholder.hidden = true;
+        placeholder.textContent = '—';
+        selectEl.appendChild(placeholder);
+        options.forEach(opt => {
+            const optionEl = document.createElement('option');
+            optionEl.value = opt;
+            optionEl.textContent = opt;
+            selectEl.appendChild(optionEl);
+        });
+        if (currentValue && !options.includes(currentValue)) {
+            const customOption = document.createElement('option');
+            customOption.value = currentValue;
+            customOption.textContent = currentValue;
+            selectEl.appendChild(customOption);
+        }
+        selectEl.value = currentValue || '';
+    };
+
+    ensureOptions(band2, PRESET_BANDS.band2, currentBand2);
+    ensureOptions(band5, PRESET_BANDS.band5, currentBand5);
 
     wifiSsid.value = data.wifi?.ssid || '';
     wifiPassword.value = '';
@@ -172,11 +217,10 @@ function fillForm(data) {
     mikrotikPassword.value = '';
     mikrotikToken.value = '';
     mikrotikInterface.value = data.mikrotik?.wlan_interface || '';
-    band2.value = data.bands?.band_2ghz || '';
-    band5.value = data.bands?.band_5ghz || '';
     if (wifiClear) wifiClear.checked = false;
     if (mikrotikClearPass) mikrotikClearPass.checked = false;
     if (mikrotikClearToken) mikrotikClearToken.checked = false;
+    if (scanDurationInput) scanDurationInput.value = currentScanDuration || '';
 
     setStatusMessage(data);
 }
@@ -224,6 +268,9 @@ function buildSettingsPayload() {
     const mikrotikInterfaceInput = document.getElementById('mikrotik-interface');
     const mikrotikClearPass = document.getElementById('mikrotik-clear-password');
     const mikrotikClearToken = document.getElementById('mikrotik-clear-token');
+    const band2Input = document.getElementById('band-2g');
+    const band5Input = document.getElementById('band-5g');
+    const scanDurationInput = document.getElementById('scan-duration');
 
     const newIp = mikrotikIpInput.value.trim();
     if (newIp !== (settingsSnapshot.mikrotik?.ip || '')) {
@@ -238,10 +285,10 @@ function buildSettingsPayload() {
     } else if (mikrotikPasswordInput.value.length > 0) {
         mikrotik.password = mikrotikPasswordInput.value;
     }
-    const newToken = mikrotikTokenInput.value.trim();
     if (mikrotikClearToken && mikrotikClearToken.checked) {
         mikrotik.token = "";
-    } else if (newToken !== '') {
+    } else if (mikrotikTokenInput.value.trim().length > 0) {
+        const newToken = mikrotikTokenInput.value.trim();
         if (newToken !== (settingsSnapshot.mikrotik?.token || '')) {
             mikrotik.token = newToken;
         }
@@ -255,8 +302,6 @@ function buildSettingsPayload() {
     }
 
     const bands = {};
-    const band2Input = document.getElementById('band-2g');
-    const band5Input = document.getElementById('band-5g');
     const newBand2 = band2Input.value.trim();
     if (newBand2 !== (settingsSnapshot.bands?.band_2ghz || '')) {
         bands.band_2ghz = newBand2;
@@ -267,6 +312,23 @@ function buildSettingsPayload() {
     }
     if (Object.keys(bands).length > 0) {
         payload.bands = bands;
+    }
+
+    const scan = {};
+    if (scanDurationInput) {
+        const rawValue = scanDurationInput.value.trim();
+        if (rawValue.length > 0) {
+            const parsed = parseInt(rawValue, 10);
+            if (Number.isNaN(parsed) || parsed <= 0) {
+                throw new Error(t('config.validation.scanDurationInvalid'));
+            }
+            if (parsed !== (settingsSnapshot.scan?.duration_seconds || 0)) {
+                scan.duration_seconds = parsed;
+            }
+        }
+    }
+    if (Object.keys(scan).length > 0) {
+        payload.scan = scan;
     }
 
     return Object.keys(payload).length > 0 ? payload : null;
