@@ -28,6 +28,7 @@ const DEFAULT_TRANSLATIONS = {
     "button.disconnect": "Disconnect",
     "button.connect": "Connect",
     "button.cancel": "Cancel",
+    "button.forget": "Forget",
     "band.title": "Frequency Band",
     "networks.title": "Available Networks",
     "button.scan": "Scan for networks",
@@ -48,6 +49,8 @@ const DEFAULT_TRANSLATIONS = {
     "notification.connect.failed": "Connection failed: {error}",
     "notification.disconnect.success": "Disconnected",
     "notification.disconnect.failed": "Failed to disconnect: {error}",
+    "notification.profile.deleted": "Removed saved network \"{ssid}\"",
+    "notification.profile.deleteFailed": "Failed to remove saved network: {error}",
     "confirm.disconnect": "Really disconnect?",
     "detail.ssid": "SSID",
     "detail.band": "Band",
@@ -320,6 +323,9 @@ function normalizeNetworkEntry(entry, band) {
         }
     }
 
+    const profileObj = entry.profile ?? null;
+    const profileName = entry.profileName ?? (profileObj && profileObj.name) ?? '';
+
     return {
         ssid: entry.ssid,
         mac: macAddress,
@@ -327,6 +333,8 @@ function normalizeNetworkEntry(entry, band) {
         frequency: entry.frequency ?? entry.freq ?? null,
         security: security,
         known: !!entry.known,
+        profile: profileObj,
+        profileName,
         band,
         lastUpdated: Date.now()
     };
@@ -352,7 +360,15 @@ function mergeNetworkResults(existing, incoming, band) {
             merged.set(key, normalized);
         }
     });
-    return Array.from(merged.values()).sort((a, b) => b.signal - a.signal);
+    return Array.from(merged.values()).sort((a, b) => {
+        const isKnownA = a.known ? 1 : 0;
+        const isKnownB = b.known ? 1 : 0;
+
+        if (isKnownA !== isKnownB) {
+            return isKnownB - isKnownA; // known first
+        }
+        return (b.signal ?? 0) - (a.signal ?? 0);
+    });
 }
 
 let toastTimer = null;
@@ -795,7 +811,7 @@ function renderNetworkList() {
     }
 
     list.innerHTML = filtered.map(network => {
-        const signalPercent = Math.min(100, Math.max(0, ((network.signal + 100) / 60) * 100));
+        const signalPercent = signalToPercent(network.signal);
         const securityState = network.security;
         const requiresPassword = securityState !== false;
         let icon = '';
@@ -836,6 +852,8 @@ function renderNetworkList() {
                 mac: network.mac || '',
                 securityState,
                 known: !!network.known,
+                profile: network.profile || null,
+                profileName: network.profileName || (network.profile && network.profile.name) || '',
                 band: state.currentBand,
                 key
             };
@@ -961,9 +979,12 @@ async function scan(auto = false) {
                 if (matched) {
                     network.known = true;
                     network.profile = matched;
+                    network.profileName = matched.name || '';
                     console.log(`  ✓ Matched network "${network.ssid}" with profile`);
                 } else {
                     network.known = false;
+                    network.profile = null;
+                    network.profileName = '';
                     console.log(`  ✗ No profile found for "${network.ssid}"`);
                 }
             });
@@ -986,6 +1007,8 @@ async function scan(auto = false) {
                     securityState: refreshed.security,
                     requiresPassword: refreshed.security !== false,
                     mac: refreshed.mac || state.selectedNetwork.mac,
+                    profile: refreshed.profile || null,
+                    profileName: refreshed.profileName || (refreshed.profile && refreshed.profile.name) || state.selectedNetwork.profileName || '',
                     key: refreshedKey,
                     band: requestedBand
                 };
@@ -1040,10 +1063,16 @@ function updatePasswordUI() {
 
 function showConnectSection() {
     const section = document.getElementById('connect-section');
+    const forgetBtn = document.getElementById('forget-btn');
 
     document.getElementById('selected-ssid').textContent = state.selectedNetwork.ssid;
     document.getElementById('password-input').value = '';
     updatePasswordUI();
+
+    if (forgetBtn) {
+        forgetBtn.style.display = state.selectedNetwork.known ? 'inline-block' : 'none';
+        forgetBtn.disabled = !state.selectedNetwork.known;
+    }
 
     section.style.display = 'block';
     section.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -1052,6 +1081,11 @@ function showConnectSection() {
 function hideConnectSection() {
     const section = document.getElementById('connect-section');
     section.style.display = 'none';
+    const forgetBtn = document.getElementById('forget-btn');
+    if (forgetBtn) {
+        forgetBtn.style.display = 'none';
+        forgetBtn.disabled = true;
+    }
     const list = document.getElementById('networks-list');
     if (list) {
         list.querySelectorAll('.network-item').forEach(i => i.classList.remove('selected'));
@@ -1109,6 +1143,64 @@ async function connect() {
     }
 }
 
+async function forgetSelectedNetwork() {
+    if (!state.selectedNetwork || !state.selectedNetwork.known) return;
+
+    const payload = {
+        ssid: state.selectedNetwork.ssid
+    };
+    if (state.selectedNetwork.profileName) {
+        payload.profileName = state.selectedNetwork.profileName;
+    }
+
+    try {
+        const response = await API.post('/api/profile/delete', payload);
+        if (response && response.error) {
+            throw new Error(response.error);
+        }
+
+        const targetKey = state.selectedNetwork.key;
+        const targetBand = state.selectedNetwork.band;
+
+        Object.entries(state.networks).forEach(([bandKey, list]) => {
+            const updated = list.map(item => {
+                if (getNetworkKey(item) === targetKey) {
+                    return {
+                        ...item,
+                        known: false,
+                        profile: null,
+                        profileName: ''
+                    };
+                }
+                return item;
+            });
+            state.networks[bandKey] = bandKey === targetBand
+                ? mergeNetworkResults(updated, [], bandKey)
+                : updated;
+        });
+
+        const forgetBtn = document.getElementById('forget-btn');
+        if (forgetBtn) {
+            forgetBtn.style.display = 'none';
+            forgetBtn.disabled = true;
+        }
+
+        const ssid = state.selectedNetwork.ssid;
+        state.selectedNetwork.known = false;
+        state.selectedNetwork.profile = null;
+        state.selectedNetwork.profileName = '';
+        state.selectedNetwork.requiresPassword = state.selectedNetwork.securityState !== false;
+
+        updatePasswordUI();
+        renderNetworkList();
+
+        showNotification(t('notification.profile.deleted', { ssid }), 'success');
+    } catch (error) {
+        const message = error && error.message ? error.message : error;
+        showNotification(t('notification.profile.deleteFailed', { error: message }), 'error');
+    }
+}
+
 async function disconnect() {
     if (!confirm(t('confirm.disconnect'))) return;
 
@@ -1136,7 +1228,6 @@ async function loadConfig() {
         state.config.scan_poll_interval_ms = config.scan_poll_interval_ms ?? 500;
         state.config.scan_timeout_ms = config.scan_timeout_ms
             ?? (state.config.scan_min_ready_ms + state.config.scan_result_grace_ms + state.config.scan_poll_interval_ms);
-        state.config.scan_csv_filename = config.scan_csv_filename ?? 'tmp1/wlan-scan.csv';
         state.config.signal_min_dbm = config.signal_min_dbm ?? -100;
         state.config.signal_max_dbm = config.signal_max_dbm ?? -40;
 
@@ -1163,7 +1254,6 @@ async function loadConfig() {
             scan_result_grace_ms: 2000,
             scan_poll_interval_ms: 500,
             scan_timeout_ms: 7500,
-            scan_csv_filename: 'tmp1/wlan-scan.csv',
             signal_min_dbm: -100,
             signal_max_dbm: -40
         };
@@ -1220,6 +1310,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('disconnect-btn').onclick = disconnect;
     document.getElementById('connect-btn').onclick = connect;
     document.getElementById('cancel-btn').onclick = hideConnectSection;
+    document.getElementById('forget-btn').onclick = forgetSelectedNetwork;
 
     document.querySelectorAll('.filter-btn').forEach(btn => {
         btn.onclick = () => {
