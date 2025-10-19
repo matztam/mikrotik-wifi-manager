@@ -81,18 +81,18 @@ bool handleFileRead(String path) {
 
   String contentType = getContentType(path);
 
-  Serial.println("  Versuche zu oeffnen: " + path);
+  Serial.println("  Attempting to open: " + path);
   if (LittleFS.exists(path)) {
     File file = LittleFS.open(path, "r");
     if (file) {
-      Serial.println("  ✓ Datei gefunden, sende...");
+      Serial.println("  ✓ File found, streaming...");
       server.streamFile(file, contentType);
       file.close();
       return true;
     }
   }
 
-  Serial.println("  ✗ Datei nicht gefunden: " + path);
+  Serial.println("  ✗ File not found: " + path);
   return false;
 }
 
@@ -307,7 +307,7 @@ bool ensureTmpfs() {
   }
 
   // tmpfs not found, create it
-  Serial.println("  tmpfs nicht gefunden, lege an...");
+  Serial.println("  tmpfs missing, creating...");
   DynamicJsonDocument createDoc(JSON_BUFFER_DISK_MUTATION);
   createDoc["type"] = "tmpfs";
   createDoc["tmpfs-max-size"] = "1";
@@ -315,7 +315,7 @@ bool ensureTmpfs() {
   serializeJson(createDoc, createBody);
 
   mikrotikRequest("POST", "/disk/add", createBody);
-  Serial.println("  tmpfs angelegt");
+  Serial.println("  tmpfs created");
   return true;
 }
 
@@ -333,13 +333,13 @@ void removeTmpfs() {
       if (mountPoint == "tmp1" || slot == "tmp1") {
         String diskId = disk[".id"] | "";
         if (diskId.length() > 0) {
-          Serial.println("  Lösche tmpfs...");
+          Serial.println("  Deleting tmpfs...");
           DynamicJsonDocument removeDoc(JSON_BUFFER_DISK_MUTATION);
           removeDoc["numbers"] = diskId;
           String removeBody;
           serializeJson(removeDoc, removeBody);
           mikrotikRequest("POST", "/disk/remove", removeBody);
-          Serial.println("  tmpfs gelöscht");
+          Serial.println("  tmpfs removed");
         }
         return;
       }
@@ -351,7 +351,7 @@ void removeTmpfs() {
 
 void handleConfig() {
   // Return configured band modes and runtime parameters to the frontend
-  Serial.println("  Config-Abfrage");
+  Serial.println("  Config request");
 
   StaticJsonDocument<256> doc;
   doc["band_2ghz"] = BAND_2GHZ;
@@ -372,7 +372,7 @@ void handleConfig() {
 
 void handleStatus() {
   // Raw passthrough: ESP32 only forwards data, frontend parses it
-  Serial.println("  Status-Abfrage: Sammle MikroTik-Daten...");
+  Serial.println("  Status request: collecting MikroTik data...");
 
   // Fetch required data from MikroTik
   String interfacesResp = mikrotikRequest("GET", "/interface/wireless");
@@ -394,7 +394,7 @@ void handleStatus() {
   output += dnsResp;
   output += "}";
 
-  Serial.printf("  → Sende %d bytes an Frontend (Frontend macht Parsing)\n", output.length());
+  Serial.printf("  → Sending %d bytes to frontend (frontend handles parsing)\n", output.length());
   server.send(200, "application/json", output);
 }
 
@@ -402,7 +402,7 @@ void handleScanStart() {
   String band = server.arg("band");
   if (band == "") band = String(BAND_2GHZ);
 
-  Serial.printf("  Scan-Start für Band: %s\n", band.c_str());
+  Serial.printf("  Scan start for band: %s\n", band.c_str());
 
   // Abort if a scan is already running
   if (scanState.isScanning) {
@@ -420,7 +420,7 @@ void handleScanStart() {
 
   // Switch MikroTik band if necessary
   if (band.length() > 0 && currentBand != band) {
-    Serial.printf("  Wechsle Band: %s -> %s\n", currentBand.c_str(), band.c_str());
+    Serial.printf("  Switching band: %s -> %s\n", currentBand.c_str(), band.c_str());
     DynamicJsonDocument bandDoc(JSON_BUFFER_SECURITY_PAYLOAD);
     bandDoc["band"] = band;
     String bandPayload;
@@ -431,7 +431,7 @@ void handleScanStart() {
 
   // Ensure tmpfs exists
   if (!ensureTmpfs()) {
-    Serial.println("  Warnung: tmpfs nicht verfügbar");
+    Serial.println("  Warning: tmpfs unavailable");
     server.send(500, "application/json", "{\"error\":\"tmpfs not available\"}");
     return;
   }
@@ -463,7 +463,7 @@ void handleScanStart() {
   // Short timeout (500ms) just to trigger; response is ignored
   mikrotikRequest("POST", "/interface/wireless/scan", scanBody, 500);
 
-  Serial.println("  Scan getriggert (timeout nach 500ms)");
+  Serial.println("  Scan triggered (timeout after 500ms)");
 
   // Immediately confirm that the scan started
   StaticJsonDocument<160> responseDoc;
@@ -480,7 +480,7 @@ void handleScanStart() {
 }
 
 void handleScanResult() {
-  Serial.println("  Scan-Result abgerufen");
+  Serial.println("  Scan result requested");
 
   // Serve cached result if one exists
   if (scanState.hasResult) {
@@ -507,14 +507,14 @@ void handleScanResult() {
                                                           : (minReadyMs + SCAN_RESULT_GRACE_MS + SCAN_POLL_INTERVAL_MS);
 
   if (elapsedMs < minReadyMs) {
-    Serial.printf("  Scan zu frisch (%lu/%lu ms), sende pending\n", elapsedMs, minReadyMs);
+    Serial.printf("  Scan too recent (%lu/%lu ms), returning pending\n", elapsedMs, minReadyMs);
     server.send(200, "application/json", "{\"status\":\"pending\"}");
     return;
   }
 
   // Timeout guard
   if (elapsedMs > timeoutMs) {
-    Serial.printf("  Scan timeout nach %lu ms (Limit %lu ms)\n", elapsedMs, timeoutMs);
+    Serial.printf("  Scan timeout after %lu ms (limit %lu ms)\n", elapsedMs, timeoutMs);
     scanState.isScanning = false;
     removeTmpfs();
     server.send(200, "application/json", "{\"status\":\"timeout\",\"error\":\"Scan timeout\"}");
@@ -539,7 +539,7 @@ void handleScanResult() {
         csvContent = file["contents"] | "";
         fileId = file[".id"] | "";
         if (csvContent.length() > 0) {
-          Serial.printf("  CSV-Datei gefunden: %s\n", fileName.c_str());
+          Serial.printf("  CSV file found: %s\n", fileName.c_str());
           break;
         }
       }
@@ -548,7 +548,7 @@ void handleScanResult() {
 
   // If CSV not ready yet, return pending (frontend will poll again)
   if (csvContent.length() == 0) {
-    Serial.printf("  CSV noch nicht bereit (%lu/%lu ms)\n", elapsedMs, timeoutMs);
+    Serial.printf("  CSV not ready yet (%lu/%lu ms)\n", elapsedMs, timeoutMs);
     server.send(200, "application/json", "{\"status\":\"pending\"}");
     return;
   }
@@ -603,7 +603,7 @@ void handleScanResult() {
   // Remove tmpfs
   removeTmpfs();
 
-  Serial.println("  CSV-Scan erfolgreich - Ergebnis gesendet");
+  Serial.println("  CSV scan complete - result sent");
 }
 
 void handleConnect() {
@@ -619,7 +619,7 @@ void handleConnect() {
   bool known = doc["known"] | false;
   String profileName = doc["profileName"] | "";
 
-  Serial.printf("  Verbinde zu: %s\n", ssid.c_str());
+  Serial.printf("  Connecting to: %s\n", ssid.c_str());
 
   // Create or update security profile
   String profileNameResult = ensureSecurityProfile(ssid, password, requiresPassword, known, profileName);
@@ -644,7 +644,7 @@ void handleConnect() {
 
   String response = mikrotikRequest("PATCH", "/interface/wireless/" + wlanId, config);
 
-  Serial.printf("  ✓ Verbunden mit: %s\n", ssid.c_str());
+  Serial.printf("  ✓ Connected to: %s\n", ssid.c_str());
   server.send(200, "application/json", "{\"success\":true}");
 }
 
@@ -658,7 +658,7 @@ void handleDisconnect() {
 
   mikrotikRequest("PATCH", "/interface/wireless/" + wlanId, "{\"disabled\":\"yes\"}");
 
-  Serial.println("  ✓ Verbindung getrennt");
+  Serial.println("  ✓ Disconnected");
   server.send(200, "application/json", "{\"success\":true}");
 }
 
@@ -696,15 +696,15 @@ void setup() {
   Serial.println("\n\n=== MikroTik WiFi Manager (ESP32-S2) ===");
 
   // Initialize LittleFS
-  Serial.println("Initialisiere LittleFS...");
+  Serial.println("Initializing LittleFS...");
   if (!LittleFS.begin(true)) {
-    Serial.println("FEHLER: LittleFS Mount fehlgeschlagen!");
-    Serial.println("Bitte führen Sie 'pio run --target uploadfs' aus!");
+    Serial.println("ERROR: LittleFS mount failed!");
+    Serial.println("Please run 'pio run --target uploadfs'!");
   } else {
-    Serial.println("LittleFS erfolgreich gemountet");
+    Serial.println("LittleFS mounted successfully");
 
     // List files
-    Serial.println("\nDateien im Dateisystem:");
+    Serial.println("\nFiles in filesystem:");
     File root = LittleFS.open("/");
     File file = root.openNextFile();
     while (file) {
@@ -715,7 +715,7 @@ void setup() {
   }
 
   // Connect to WiFi
-  Serial.printf("Verbinde mit WiFi: %s\n", WIFI_SSID);
+  Serial.printf("Connecting to WiFi: %s\n", WIFI_SSID);
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
@@ -727,12 +727,12 @@ void setup() {
   }
 
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("\nWiFi verbunden!");
-    Serial.print("IP Adresse: ");
+    Serial.println("\nWiFi connected!");
+    Serial.print("IP address: ");
     Serial.println(WiFi.localIP());
   } else {
-    Serial.println("\nWiFi-Verbindung fehlgeschlagen!");
-    Serial.println("Starte trotzdem Webserver...");
+    Serial.println("\nWiFi connection failed!");
+    Serial.println("Starting web server anyway...");
   }
 
   // Register API routes
@@ -755,9 +755,9 @@ void setup() {
   server.onNotFound(handleNotFound);
 
   server.begin();
-  Serial.printf("Webserver gestartet auf Port %d\n", WEB_PORT);
-  Serial.println("\n=== Bereit! ===");
-  Serial.printf("Öffne: http://%s/\n\n", WiFi.localIP().toString().c_str());
+  Serial.printf("Web server started on port %d\n", WEB_PORT);
+  Serial.println("\n=== Ready! ===");
+  Serial.printf("Open: http://%s/\n\n", WiFi.localIP().toString().c_str());
 }
 
 void loop() {
