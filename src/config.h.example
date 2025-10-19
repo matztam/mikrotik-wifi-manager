@@ -1,26 +1,26 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
-// ==================== KONFIGURATION ====================
+// ==================== CONFIGURATION ====================
 
-// WiFi Credentials (Ihr Bord-WLAN)
+// WiFi credentials (ESP32 home network)
 const char* WIFI_SSID = "Boot-WLAN";
 const char* WIFI_PASSWORD = "IhrPasswort";
 
-// MikroTik Credentials
+// MikroTik credentials
 const char* MIKROTIK_IP = "10.0.0.112";
-const char* MIKROTIK_USER = "admin";           // Nur für Basic Auth (leer lassen bei Token)
-const char* MIKROTIK_PASS = "";                // Nur für Basic Auth (leer lassen bei Token)
-const char* MIKROTIK_TOKEN = "";               // REST API Token (empfohlen!) - siehe MIKROTIK-TOKEN-SETUP.md
+const char* MIKROTIK_USER = "admin";           // Only for Basic Auth (leave empty when using token)
+const char* MIKROTIK_PASS = "";                // Only for Basic Auth (leave empty when using token)
+const char* MIKROTIK_TOKEN = "";               // REST API token (recommended) - see MIKROTIK-TOKEN-SETUP.md
 
-// MikroTik WLAN Interface Name (z.B. "wlan1", "wlan2")
+// MikroTik WLAN interface name (e.g., "wlan1", "wlan2")
 const char* MIKROTIK_WLAN_INTERFACE = "wlan1";
 
-// Unterstützte WLAN-Bänder (abhängig von Hardware-Fähigkeiten)
-// Für MikroTik Groove ohne AC: "2ghz-g/n" und "5ghz-a/n"
-// Für neuere Hardware mit AC: "2ghz-g/n" und "5ghz-a/n/ac"
-const char* BAND_2GHZ = "2ghz-g/n";      // Empfohlen: g/n (b ist veraltet)
-const char* BAND_5GHZ = "5ghz-a/n";      // Oder "5ghz-a/n/ac" falls unterstützt
+// Supported Wi-Fi bands (depends on hardware capabilities)
+// MikroTik Groove without AC: "2ghz-g/n" and "5ghz-a/n"
+// Newer hardware with AC: "2ghz-g/n" and "5ghz-a/n/ac"
+const char* BAND_2GHZ = "2ghz-g/n";      // Recommendation: g/n (b is legacy)
+const char* BAND_5GHZ = "5ghz-a/n";      // Or "5ghz-a/n/ac" if the device supports it
 
 // ESP32 Webserver Port
 const int WEB_PORT = 80;
