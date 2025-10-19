@@ -221,8 +221,6 @@ String getContentType(String filename) {
 }
 
 bool handleFileRead(String path) {
-  Serial.println("handleFileRead: " + path);
-
   if (path.endsWith("/")) {
     path += "index.html";
   }
@@ -244,18 +242,15 @@ bool handleFileRead(String path) {
 
   String contentType = getContentType(path);
 
-  Serial.println("  Attempting to open: " + path);
   if (LittleFS.exists(path)) {
     File file = LittleFS.open(path, "r");
     if (file) {
-      Serial.println("  ✓ File found, streaming...");
       server.streamFile(file, contentType);
       file.close();
       return true;
     }
   }
 
-  Serial.println("  ✗ File not found: " + path);
   return false;
 }
 
@@ -298,7 +293,6 @@ String mikrotikRequest(String method, String path, String jsonBody = "", int tim
   String response = "";
   if (httpCode > 0) {
     response = http.getString();
-    Serial.printf("  → MikroTik: %s %s → %d\n", method.c_str(), path.c_str(), httpCode);
   } else {
     Serial.printf("  → MikroTik ERROR: %s\n", http.errorToString(httpCode).c_str());
     response = "{\"error\":\"Request failed\"}";
@@ -361,16 +355,12 @@ String ensureSecurityProfile(String ssid, String password, bool requiresPassword
   JsonObject targetProfile;
   String existingMode = "";
   if (profilesDoc.is<JsonArray>()) {
-    Serial.printf("  Checking %d existing profiles...\n", profilesDoc.as<JsonArray>().size());
     for (JsonObject profile : profilesDoc.as<JsonArray>()) {
       String pName = profile["name"] | "";
       String pComment = profile["comment"] | "";
-      String pMode = profile["mode"] | "";
-      Serial.printf("    - Profile: %s, mode=%s, comment=%s\n", pName.c_str(), pMode.c_str(), pComment.c_str());
       if (pName == profileName || pComment == comment) {
         targetProfile = profile;
         existingMode = profile["mode"] | "";
-        Serial.printf("  ✓ Found matching profile: %s (mode=%s)\n", pName.c_str(), existingMode.c_str());
         break;
       }
     }
@@ -378,23 +368,14 @@ String ensureSecurityProfile(String ssid, String password, bool requiresPassword
 
   // Determine desired security mode
   String desiredMode = requiresPassword ? "dynamic-keys" : "none";
-  Serial.printf("  Desired mode: %s (requiresPassword=%d, password.length=%d)\n",
-                desiredMode.c_str(), requiresPassword, password.length());
 
   // If profile exists but mode differs -> delete and recreate
   bool needsRecreate = false;
   if (!targetProfile.isNull() && existingMode != desiredMode) {
-    Serial.printf("  ⚠ Security mode changed: %s -> %s. Recreating profile.\n",
-                  existingMode.c_str(), desiredMode.c_str());
     String targetName = targetProfile["name"] | profileName;
-    String deleteResp = mikrotikRequest("DELETE", "/interface/wireless/security-profiles/" + targetName, "");
-    Serial.printf("  DELETE response: %s\n", deleteResp.c_str());
+    mikrotikRequest("DELETE", "/interface/wireless/security-profiles/" + targetName, "");
     targetProfile = JsonObject();  // Mark as deleted
     needsRecreate = true;
-  } else if (!targetProfile.isNull()) {
-    Serial.printf("  Mode unchanged (%s), will update profile.\n", existingMode.c_str());
-  } else {
-    Serial.println("  No existing profile found, will create new one.");
   }
 
   // Build payload
@@ -407,7 +388,6 @@ String ensureSecurityProfile(String ssid, String password, bool requiresPassword
     if (password.length() > 0) {
       payloadDoc["wpa-pre-shared-key"] = password;
       payloadDoc["wpa2-pre-shared-key"] = password;
-      Serial.printf("  Security Profile: mode=dynamic-keys, password=%d chars\n", password.length());
     } else {
       Serial.println("  WARNING: requiresPassword=true but password is empty!");
     }
@@ -416,7 +396,6 @@ String ensureSecurityProfile(String ssid, String password, bool requiresPassword
     payloadDoc["authentication-types"] = "";
     payloadDoc["wpa-pre-shared-key"] = "";
     payloadDoc["wpa2-pre-shared-key"] = "";
-    Serial.println("  Security Profile: mode=none (open network)");
   }
 
   String payload;
@@ -426,8 +405,6 @@ String ensureSecurityProfile(String ssid, String password, bool requiresPassword
   if (!targetProfile.isNull() && !needsRecreate) {
     // Update existing profile (only when mode stays the same)
     String targetName = targetProfile["name"] | profileName;
-    Serial.printf("  Updating existing profile: %s\n", targetName.c_str());
-    Serial.printf("  Payload: %s\n", payload.c_str());
     mikrotikRequest("PATCH", "/interface/wireless/security-profiles/" + targetName, payload);
     return targetName;
   } else {
@@ -439,11 +416,6 @@ String ensureSecurityProfile(String ssid, String password, bool requiresPassword
     payloadDoc["name"] = profileName;
     String createPayload;
     serializeJson(payloadDoc, createPayload);
-    if (needsRecreate) {
-      Serial.printf("  Creating new profile: %s\n", profileName.c_str());
-    } else {
-      Serial.printf("  Creating profile: %s\n", profileName.c_str());
-    }
     mikrotikRequest("POST", "/interface/wireless/security-profiles/add", createPayload);
     return profileName;
   }
@@ -514,8 +486,6 @@ void removeTmpfs() {
 
 void handleConfig() {
   // Return configured band modes and runtime parameters to the frontend
-  Serial.println("  Config request");
-
   StaticJsonDocument<256> doc;
   doc["band_2ghz"] = runtimeConfig.band2ghz;
   doc["band_5ghz"] = runtimeConfig.band5ghz;
@@ -690,9 +660,6 @@ void handleSettingsUpdate() {
 
 void handleStatus() {
   if (!ensureOperationAllowed()) return;
-  // Raw passthrough: ESP32 only forwards data, frontend parses it
-  Serial.println("  Status request: collecting MikroTik data...");
-
   // Fetch required data from MikroTik
   String interfacesResp = mikrotikRequest("GET", "/interface/wireless");
   String registrationResp = mikrotikRequest("GET", "/interface/wireless/registration-table");
@@ -713,7 +680,6 @@ void handleStatus() {
   output += dnsResp;
   output += "}";
 
-  Serial.printf("  → Sending %d bytes to frontend (frontend handles parsing)\n", output.length());
   server.send(200, "application/json", output);
 }
 
@@ -721,8 +687,6 @@ void handleScanStart() {
   if (!ensureOperationAllowed()) return;
   String band = server.arg("band");
   if (band == "") band = runtimeConfig.band2ghz;
-
-  Serial.printf("  Scan start for band: %s\n", band.c_str());
 
   // Abort if a scan is already running
   if (scanState.isScanning) {
@@ -740,7 +704,6 @@ void handleScanStart() {
 
   // Switch MikroTik band if necessary
   if (band.length() > 0 && currentBand != band) {
-    Serial.printf("  Switching band: %s -> %s\n", currentBand.c_str(), band.c_str());
     DynamicJsonDocument bandDoc(JSON_BUFFER_SECURITY_PAYLOAD);
     bandDoc["band"] = band;
     String bandPayload;
@@ -774,7 +737,7 @@ void handleScanStart() {
   // Response is irrelevant; MikroTik continues the scan and CSV is fetched later
   DynamicJsonDocument scanDoc(JSON_BUFFER_SCAN_REQUEST);
   scanDoc[".id"] = wlanName;
-  scanDoc["duration"] = String(SCAN_DURATION_SECONDS);
+  scanDoc["duration"] = String(runtimeConfig.scanDurationSeconds);
   scanDoc["save-file"] = scanState.csvFilename;
 
   String scanBody;
@@ -782,8 +745,6 @@ void handleScanStart() {
 
   // Short timeout (500ms) just to trigger; response is ignored
   mikrotikRequest("POST", "/interface/wireless/scan", scanBody, 500);
-
-  Serial.println("  Scan triggered (timeout after 500ms)");
 
   // Immediately confirm that the scan started
   StaticJsonDocument<160> responseDoc;
@@ -801,8 +762,6 @@ void handleScanStart() {
 
 void handleScanResult() {
   if (!ensureOperationAllowed()) return;
-  Serial.println("  Scan result requested");
-
   // Serve cached result if one exists
   if (scanState.hasResult) {
     server.send(200, "application/json", scanState.result);
@@ -828,7 +787,6 @@ void handleScanResult() {
                                                           : (minReadyMs + SCAN_RESULT_GRACE_MS + SCAN_POLL_INTERVAL_MS);
 
   if (elapsedMs < minReadyMs) {
-    Serial.printf("  Scan too recent (%lu/%lu ms), returning pending\n", elapsedMs, minReadyMs);
     server.send(200, "application/json", "{\"status\":\"pending\"}");
     return;
   }
@@ -860,7 +818,6 @@ void handleScanResult() {
         csvContent = file["contents"] | "";
         fileId = file[".id"] | "";
         if (csvContent.length() > 0) {
-          Serial.printf("  CSV file found: %s\n", fileName.c_str());
           break;
         }
       }
@@ -869,7 +826,6 @@ void handleScanResult() {
 
   // If CSV not ready yet, return pending (frontend will poll again)
   if (csvContent.length() == 0) {
-    Serial.printf("  CSV not ready yet (%lu/%lu ms)\n", elapsedMs, timeoutMs);
     server.send(200, "application/json", "{\"status\":\"pending\"}");
     return;
   }
@@ -886,7 +842,6 @@ void handleScanResult() {
   // Attach profile info (frontend uses this to flag known networks)
   JsonArray profiles = responseDoc.createNestedArray("profiles");
   if (profilesDoc.is<JsonArray>()) {
-    Serial.printf("  Adding %d profiles to scan result...\n", profilesDoc.as<JsonArray>().size());
     for (JsonObject profile : profilesDoc.as<JsonArray>()) {
       String comment = profile["comment"] | "";
       if (comment.startsWith(PROFILE_COMMENT_PREFIX)) {
@@ -896,11 +851,9 @@ void handleScanResult() {
         p["name"] = profile["name"] | "";
         p["mode"] = profile["mode"];
         p["authentication-types"] = profile["authentication-types"];
-        Serial.printf("    - Profile for SSID: %s (mode=%s)\n", ssid.c_str(), profile["mode"].as<const char*>());
       }
     }
   }
-  Serial.printf("  Total profiles sent to frontend: %d\n", profiles.size());
 
   String output;
   serializeJson(responseDoc, output);
@@ -924,8 +877,6 @@ void handleScanResult() {
 
   // Remove tmpfs
   removeTmpfs();
-
-  Serial.println("  CSV scan complete - result sent");
 }
 
 void handleConnect() {
@@ -941,8 +892,6 @@ void handleConnect() {
   bool requiresPassword = doc["requiresPassword"] | true;
   bool known = doc["known"] | false;
   String profileName = doc["profileName"] | "";
-
-  Serial.printf("  Connecting to: %s\n", ssid.c_str());
 
   // Create or update security profile
   String profileNameResult = ensureSecurityProfile(ssid, password, requiresPassword, known, profileName);
@@ -967,7 +916,6 @@ void handleConnect() {
 
   String response = mikrotikRequest("PATCH", "/interface/wireless/" + wlanId, config);
 
-  Serial.printf("  ✓ Connected to: %s\n", ssid.c_str());
   server.send(200, "application/json", "{\"success\":true}");
 }
 
@@ -989,8 +937,6 @@ void handleDeleteProfile() {
     server.send(400, "application/json", "{\"error\":\"Missing profileName or ssid\"}");
     return;
   }
-
-  Serial.println("  Delete profile request received");
 
   DynamicJsonDocument profilesDoc(JSON_BUFFER_SECURITY_PROFILES);
   String profilesResponse = mikrotikRequest("GET", "/interface/wireless/security-profiles");
@@ -1026,7 +972,6 @@ void handleDeleteProfile() {
     return;
   }
 
-  Serial.printf("  Deleting profile: %s\n", targetName.c_str());
   String response = mikrotikRequest("DELETE", "/interface/wireless/security-profiles/" + targetName, "");
 
   if (response.indexOf("error") != -1) {
@@ -1048,8 +993,6 @@ void handleDisconnect() {
   }
 
   mikrotikRequest("PATCH", "/interface/wireless/" + wlanId, "{\"disabled\":\"yes\"}");
-
-  Serial.println("  ✓ Disconnected");
   server.send(200, "application/json", "{\"success\":true}");
 }
 
@@ -1078,7 +1021,6 @@ void attemptWifiConnect() {
     return;
   }
 
-  Serial.printf("Attempting WiFi connection to: %s\n", runtimeConfig.wifiSsid.c_str());
   WiFi.disconnect(true);
   delay(100);
 
@@ -1173,16 +1115,6 @@ void setup() {
     Serial.println("LittleFS mounted successfully");
     fsAvailable = true;
     filesystemAvailable = true;
-
-    // List files
-    Serial.println("\nFiles in filesystem:");
-    File root = LittleFS.open("/");
-    File file = root.openNextFile();
-    while (file) {
-      Serial.printf("  %s (%d bytes)\n", file.name(), file.size());
-      file = root.openNextFile();
-    }
-    Serial.println();
   }
 
   if (fsAvailable) {
