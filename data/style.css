@@ -1,0 +1,490 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    padding: 20px;
+    color: #333;
+}
+
+.container {
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+header {
+    text-align: center;
+    color: white;
+    margin-bottom: 30px;
+}
+
+header h1 {
+    font-size: 2.5rem;
+    margin-bottom: 5px;
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+}
+
+.subtitle {
+    font-size: 1rem;
+    opacity: 0.9;
+}
+
+.card {
+    background: white;
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+.card h2 {
+    font-size: 1.3rem;
+    margin-bottom: 16px;
+    color: #667eea;
+}
+
+/* Status */
+#connection-status {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    font-weight: 500;
+}
+
+.status-disconnected {
+    background: #fee;
+    color: #c33;
+}
+
+.status-connected {
+    background: #efe;
+    color: #363;
+}
+
+.status-connecting {
+    background: #fff5e6;
+    color: #b7791f;
+}
+
+.status-indicator {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.status-disconnected .status-indicator {
+    background: #c33;
+}
+
+.status-connected .status-indicator {
+    background: #3c3;
+    animation: pulse 2s infinite;
+}
+
+.status-connecting .status-indicator {
+    background: #ed8936;
+    animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+#connection-details {
+    background: #f8f9fa;
+    padding: 16px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+}
+
+.detail-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid #e9ecef;
+}
+
+.detail-row:last-child {
+    border-bottom: none;
+}
+
+.label {
+    font-weight: 600;
+    color: #6c757d;
+}
+
+/* Bandauswahl */
+.band-selector {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.band-btn {
+    padding: 16px;
+    border: 2px solid #e9ecef;
+    background: white;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+}
+
+.band-btn:hover {
+    border-color: #667eea;
+    background: #f8f9ff;
+}
+
+.band-btn.active {
+    border-color: #667eea;
+    background: #667eea;
+    color: white;
+}
+
+.band-freq {
+    font-size: 1.2rem;
+    font-weight: 600;
+}
+
+.band-mode {
+    font-size: 0.9rem;
+    opacity: 0.8;
+}
+
+/* Buttons */
+.btn {
+    padding: 12px 24px;
+    border: none;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s;
+    width: 100%;
+}
+
+.btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+}
+
+.btn:active {
+    transform: translateY(0);
+}
+
+.btn-primary {
+    background: #667eea;
+    color: white;
+}
+
+.btn-primary:hover {
+    background: #5568d3;
+}
+
+.btn-success {
+    background: #48bb78;
+    color: white;
+}
+
+.btn-success:hover {
+    background: #38a169;
+}
+
+.btn-danger {
+    background: #f56565;
+    color: white;
+}
+
+.btn-danger:hover {
+    background: #e53e3e;
+}
+
+.btn-secondary {
+    background: #718096;
+    color: white;
+}
+
+.btn-secondary:hover {
+    background: #4a5568;
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none !important;
+}
+
+/* Loading */
+.loading-spinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid #e9ecef;
+    border-top-color: #667eea;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 16px;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Netzwerkliste */
+.network-item {
+    padding: 16px;
+    border: 2px solid #e9ecef;
+    border-radius: 8px;
+    margin-bottom: 12px;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.network-item:hover {
+    border-color: #667eea;
+    background: #f8f9ff;
+    transform: translateX(4px);
+}
+
+.network-item.selected {
+    border-color: #667eea;
+    background: #667eea;
+    color: white;
+}
+
+.filter-group {
+    display: flex;
+    gap: 8px;
+    margin: 16px 0 8px;
+}
+
+.filter-btn {
+    flex: 1;
+    padding: 8px 12px;
+    border: 2px solid #e9ecef;
+    background: white;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.95rem;
+    font-weight: 600;
+    transition: all 0.25s;
+}
+
+.filter-btn:hover {
+    background: #f8f9ff;
+    border-color: #667eea;
+}
+
+.filter-btn.active {
+    background: #667eea;
+    color: white;
+    border-color: #667eea;
+    box-shadow: 0 4px 8px rgba(102, 126, 234, 0.3);
+}
+
+.filter-btn:focus-visible {
+    outline: 2px solid #667eea;
+    outline-offset: 2px;
+}
+
+.network-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.network-ssid {
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.network-badge {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    background: #edf2ff;
+    color: #5a67d8;
+    font-weight: 600;
+}
+
+.network-details {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.85em;
+    color: #6c757d;
+}
+
+/* .network-meta optional for future extensions */
+
+.signal-bar {
+    height: 8px;
+    background: #e9ecef;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-top: 8px;
+}
+
+.signal-fill {
+    height: 100%;
+    background: #48bb78;
+    transition: width 0.3s, background 0.3s;
+    border-radius: 4px;
+}
+
+.network-item.selected .signal-fill {
+    background: rgba(255,255,255,0.5);
+}
+
+.input-field {
+    width: 100%;
+    padding: 12px;
+    border: 2px solid #e9ecef;
+    border-radius: 8px;
+    font-size: 1rem;
+    margin: 8px 0;
+    transition: border-color 0.3s;
+}
+
+.input-field:focus {
+    outline: none;
+    border-color: #667eea;
+}
+
+.button-group {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 16px;
+}
+
+/* Connect section */
+.connect-details {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.connect-row {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.connect-label {
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #6c757d;
+    font-weight: 600;
+}
+
+.connect-value {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #2d3748;
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 10px 12px;
+    border: 1px solid #e2e8f0;
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.95rem;
+    color: #4a5568;
+}
+
+.checkbox-label input {
+    width: 18px;
+    height: 18px;
+}
+
+.signal-quality {
+    margin-top: 16px;
+}
+
+.signal-quality-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-weight: 600;
+    color: #4a5568;
+}
+
+.status-signal {
+    margin-top: 8px;
+    height: 10px;
+}
+
+.toast {
+    position: fixed;
+    top: 24px;
+    right: 24px;
+    min-width: 240px;
+    max-width: 320px;
+    padding: 14px 18px;
+    border-radius: 10px;
+    color: white;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+    opacity: 0;
+    transform: translateY(-12px);
+    pointer-events: none;
+    transition: opacity 0.25s ease, transform 0.25s ease;
+    z-index: 999;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+}
+
+.toast.visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.toast.hidden {
+    display: none;
+}
+
+.toast-info {
+    background: linear-gradient(135deg, #667eea, #764ba2);
+}
+
+.toast-success {
+    background: linear-gradient(135deg, #38a169, #2f855a);
+}
+
+.toast-error {
+    background: linear-gradient(135deg, #f56565, #c53030);
+}
+
+/* Responsive */
+@media (max-width: 480px) {
+    header h1 {
+        font-size: 2rem;
+    }
+
+    .card {
+        padding: 16px;
+    }
+
+    .button-group {
+        grid-template-columns: 1fr;
+    }
+}
