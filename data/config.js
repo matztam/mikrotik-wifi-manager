@@ -54,6 +54,7 @@ const DEFAULT_TRANSLATIONS = {
     "config.notice.password": "Leave password fields blank to keep current credentials.",
     "config.save.success": "Settings saved. The device is reconnecting.",
     "config.save.failed": "Failed to save settings: {error}",
+    "config.save.reconnecting": "Settings saved. Attempting to reconnect...",
     "config.validation.ssidRequired": "Wi-Fi SSID is required when saving.",
     "config.validation.scanDurationInvalid": "Scan duration must be a positive number.",
     "config.clear.wifiPassword": "Clear stored Wi-Fi password",
@@ -343,7 +344,11 @@ async function saveSettings() {
         }
 
         const result = await API.post('/api/settings', payload);
-        showToast(t('config.save.success'), 'success');
+        if (result.wifi_changed) {
+            showToast(t('config.save.reconnecting'), 'info', 4000);
+        } else {
+            showToast(t('config.save.success'), 'success');
+        }
         if (result.captive_portal) {
             showToast(t('config.status.captive', { ssid: settingsSnapshot?.status?.ap_ssid || 'MikroTikSetup' }), 'info', 6000);
         }
