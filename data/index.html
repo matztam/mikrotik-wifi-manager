@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MikroTik WiFi Manager</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <div id="toast-container" class="toast hidden"></div>
+    <div class="container">
+        <div class="card">
+            <h2>Verbindungsstatus</h2>
+            <div id="connection-status" class="status-disconnected">
+                <span class="status-indicator"></span>
+                <span id="status-text">Nicht verbunden</span>
+            </div>
+            <div id="connection-details" style="display: none;"></div>
+            <button id="disconnect-btn" class="btn btn-danger" style="display: none;">Verbindung trennen</button>
+        </div>
+
+        <div id="connect-section" class="card" style="display: none;">
+            <h2>Verbinden</h2>
+            <div class="connect-details">
+                <div class="connect-row">
+                    <label class="connect-label">SSID</label>
+                    <div class="connect-value" id="selected-ssid">-</div>
+                </div>
+                <div class="connect-row" id="password-field" style="display: none;">
+                    <label class="connect-label" for="password-input">Passwort</label>
+                    <input type="text" id="password-input" class="input-field" placeholder="Passwort eingeben">
+                </div>
+                <div class="button-group">
+                    <button id="connect-btn" class="btn btn-success">Verbinden</button>
+                    <button id="cancel-btn" class="btn btn-secondary">Abbrechen</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Frequenzband</h2>
+            <div class="band-selector" id="band-selector">
+                <!-- Buttons werden dynamisch generiert -->
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Verfügbare Netzwerke</h2>
+            <button id="scan-btn" class="btn btn-primary">Nach Netzwerken suchen</button>
+            <div class="filter-group">
+                <button class="filter-btn active" data-filter="all">Alle</button>
+                <button class="filter-btn" data-filter="secured">Verschlüsselt</button>
+                <button class="filter-btn" data-filter="open">Offen</button>
+            </div>
+            <div id="scan-status" style="display: none; text-align: center; padding: 32px;">
+                <div class="loading-spinner"></div>
+                <p>Suche nach Netzwerken...</p>
+            </div>
+            <div id="networks-list" style="margin-top: 16px;"></div>
+        </div>
+    </div>
+
+    <script src="/app.js"></script>
+</body>
+</html>
