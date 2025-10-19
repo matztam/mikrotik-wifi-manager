@@ -17,6 +17,113 @@ const API = {
     }
 };
 
+const SUPPORTED_LANGUAGES = ['en', 'de'];
+
+const DEFAULT_TRANSLATIONS = {
+    "status.title": "Connection Status",
+    "status.text.connected": "Connected",
+    "status.text.connecting": "Connecting...",
+    "status.text.disconnected": "Not connected",
+    "connect.title": "Connect",
+    "button.disconnect": "Disconnect",
+    "button.connect": "Connect",
+    "button.cancel": "Cancel",
+    "band.title": "Frequency Band",
+    "networks.title": "Available Networks",
+    "button.scan": "Scan for networks",
+    "filter.all": "All",
+    "filter.secured": "Secured",
+    "filter.open": "Open",
+    "scan.status.searching": "Searching for networks...",
+    "label.ssid": "SSID",
+    "label.password": "Password",
+    "input.password.placeholder.required": "Enter password",
+    "input.password.placeholder.optional": "Password (leave empty to use saved one)",
+    "input.password.placeholder.none": "No password required",
+    "badge.known": "Saved",
+    "notification.scan.failedReason": "Scan failed: {error}",
+    "notification.scan.timeout": "Scan timed out - please try again",
+    "notification.password.required": "Please enter a password",
+    "notification.connect.start": "Connecting to \"{ssid}\"...",
+    "notification.connect.failed": "Connection failed: {error}",
+    "notification.disconnect.success": "Disconnected",
+    "notification.disconnect.failed": "Failed to disconnect: {error}",
+    "confirm.disconnect": "Really disconnect?",
+    "detail.ssid": "SSID",
+    "detail.band": "Band",
+    "detail.signal": "Signal",
+    "detail.snr": "SNR",
+    "detail.ip": "IP address",
+    "detail.netmask": "Netmask",
+    "detail.gateway": "Gateway",
+    "detail.dns": "DNS servers"
+};
+
+let translations = { ...DEFAULT_TRANSLATIONS };
+let currentLanguage = 'en';
+
+function t(key, params = {}) {
+    const template = translations[key] ?? DEFAULT_TRANSLATIONS[key] ?? key;
+    return template.replace(/\{(\w+)\}/g, (_, prop) => {
+        return params[prop] !== undefined ? params[prop] : `{${prop}}`;
+    });
+}
+
+async function loadTranslations(language) {
+    if (!SUPPORTED_LANGUAGES.includes(language)) {
+        return false;
+    }
+
+    try {
+        const response = await fetch(`/i18n/${language}.json`, { cache: 'no-cache' });
+        if (!response.ok) {
+            return false;
+        }
+        const data = await response.json();
+        translations = { ...DEFAULT_TRANSLATIONS, ...data };
+        currentLanguage = language;
+        return true;
+    } catch (error) {
+        console.warn('Failed to load translations for', language, error);
+        return false;
+    }
+}
+
+async function initTranslations() {
+    const fallback = 'en';
+    const browserLang = (navigator.language || fallback).split('-')[0].toLowerCase();
+    const candidates = [];
+    if (SUPPORTED_LANGUAGES.includes(browserLang)) {
+        candidates.push(browserLang);
+    }
+    if (!candidates.includes(fallback)) {
+        candidates.push(fallback);
+    }
+
+    for (const lang of candidates) {
+        const loaded = await loadTranslations(lang);
+        if (loaded) {
+            break;
+        }
+    }
+
+    document.documentElement.lang = currentLanguage;
+}
+
+function applyTranslationsToDOM() {
+    document.querySelectorAll('[data-i18n]').forEach((el) => {
+        el.textContent = t(el.dataset.i18n);
+    });
+
+    document.querySelectorAll('[data-i18n-placeholder]').forEach((el) => {
+        el.setAttribute('placeholder', t(el.dataset.i18nPlaceholder));
+    });
+
+    document.querySelectorAll('[data-i18n-aria-label]').forEach((el) => {
+        el.setAttribute('aria-label', t(el.dataset.i18nAriaLabel));
+    });
+}
+
 // Utility functions
 function simpleHash(text) {
     // Simple string hash to create unique profile names
@@ -334,33 +441,33 @@ function renderSignalQuality(signal) {
 
 function buildStatusRows(status, includeNetworkInfo = false) {
     const rows = [];
-    rows.push({ label: 'SSID', value: status.ssid || '-' });
+    rows.push({ label: t('detail.ssid'), value: status.ssid || '-' });
     if (status.band) {
-        rows.push({ label: 'Band', value: status.band });
+        rows.push({ label: t('detail.band'), value: status.band });
     }
     if (status.signal) {
-        rows.push({ label: 'Signal', value: formatSignal(status.signal) });
+        rows.push({ label: t('detail.signal'), value: formatSignal(status.signal) });
     }
     if (status.snr) {
-        rows.push({ label: 'SNR', value: `${status.snr} dB` });
+        rows.push({ label: t('detail.snr'), value: `${status.snr} dB` });
     }
     if (includeNetworkInfo) {
         if (status.ip) {
-            rows.push({ label: 'IP-Adresse', value: status.ip });
+            rows.push({ label: t('detail.ip'), value: status.ip });
         }
         if (status.netmask) {
-            rows.push({ label: 'Netzmaske', value: status.netmask });
+            rows.push({ label: t('detail.netmask'), value: status.netmask });
         } else if (status.prefix) {
             const calculatedNetmask = prefixToNetmask(status.prefix);
             if (calculatedNetmask) {
-                rows.push({ label: 'Netzmaske', value: calculatedNetmask });
+                rows.push({ label: t('detail.netmask'), value: calculatedNetmask });
             }
         }
         if (status.gateway) {
-            rows.push({ label: 'Gateway', value: status.gateway });
+            rows.push({ label: t('detail.gateway'), value: status.gateway });
         }
         if (status.dns && status.dns.length) {
-            rows.push({ label: 'DNS-Server', value: status.dns.join(', ') });
+            rows.push({ label: t('detail.dns'), value: status.dns.join(', ') });
         }
     }
     return rows;
@@ -485,20 +592,20 @@ async function updateStatus() {
         if (status.connected) {
             applyStatusPanel(status, panelElements, {
                 cssClass: 'status-connected',
-                message: 'Verbunden',
+                message: t('status.text.connected'),
                 includeNetworkInfo: true,
                 showDisconnect: true
             });
         } else if (status.connecting) {
             applyStatusPanel(status, panelElements, {
                 cssClass: 'status-connecting',
-                message: 'Verbindung wird hergestellt',
+                message: t('status.text.connecting'),
                 showDisconnect: true
             });
         } else {
             applyStatusPanel(status, panelElements, {
                 cssClass: 'status-disconnected',
-                message: 'Nicht verbunden',
+                message: t('status.text.disconnected'),
                 showDetails: false
             });
         }
@@ -697,7 +804,7 @@ function renderNetworkList() {
         } else if (securityState === false) {
             icon = '📡 ';
         }
-        const badge = network.known ? '<span class="network-badge">Gespeichert</span>' : '';
+        const badge = network.known ? `<span class="network-badge">${t('badge.known')}</span>` : '';
         const key = getNetworkKey(network);
         return `
             <div class="network-item" data-ssid="${network.ssid}" data-mac="${network.mac || ''}" data-key="${key}" data-requires-password="${requiresPassword}">
@@ -756,6 +863,10 @@ async function scan(auto = false) {
     if (!auto) {
         state.allowAutoScan = true;
         document.getElementById('scan-status').style.display = 'block';
+        const scanStatusText = document.querySelector('#scan-status [data-i18n="scan.status.searching"]');
+        if (scanStatusText) {
+            scanStatusText.textContent = t('scan.status.searching');
+        }
         document.getElementById('scan-btn').disabled = true;
         state.selectedNetwork = null;
         hideConnectSection();
@@ -767,7 +878,7 @@ async function scan(auto = false) {
 
         if (startResponse.error) {
             console.error('Scan start error:', startResponse.error);
-            showNotification(`Scan fehlgeschlagen: ${startResponse.error}`, 'error');
+            showNotification(t('notification.scan.failedReason', { error: startResponse.error }), 'error');
             return;
         }
 
@@ -814,13 +925,13 @@ async function scan(auto = false) {
         }
 
         if (!response) {
-            showNotification('Scan timeout - bitte erneut versuchen', 'error');
+            showNotification(t('notification.scan.timeout'), 'error');
             return;
         }
 
         if (response.error) {
             console.error('Scan error:', response.error);
-            showNotification(`Scan fehlgeschlagen: ${response.error}`, 'error');
+            showNotification(t('notification.scan.failedReason', { error: response.error }), 'error');
             return;
         }
 
@@ -887,7 +998,7 @@ async function scan(auto = false) {
         }
     } catch (error) {
         const message = error && error.message ? error.message : error;
-        showNotification('Scan fehlgeschlagen: ' + message, 'error');
+        showNotification(t('notification.scan.failedReason', { error: message }), 'error');
     } finally {
         if (!auto) {
             document.getElementById('scan-status').style.display = 'none';
@@ -907,7 +1018,7 @@ function updatePasswordUI() {
 
     if (!state.selectedNetwork) {
         passwordField.style.display = 'none';
-        passwordInput.placeholder = 'Passwort eingeben';
+        passwordInput.placeholder = t('input.password.placeholder.required');
         passwordInput.value = '';
         return;
     }
@@ -918,12 +1029,12 @@ function updatePasswordUI() {
 
     if (requiresPassword && known) {
         // Saved encrypted network: password optional (can update stored value)
-        passwordInput.placeholder = 'Passwort (leer lassen für gespeichertes)';
+        passwordInput.placeholder = t('input.password.placeholder.optional');
     } else if (requiresPassword) {
         // New encrypted network: password required
-        passwordInput.placeholder = 'Passwort eingeben';
+        passwordInput.placeholder = t('input.password.placeholder.required');
     } else {
-        passwordInput.placeholder = 'Keine Passworteingabe erforderlich';
+        passwordInput.placeholder = t('input.password.placeholder.none');
     }
 }
 
@@ -961,7 +1072,7 @@ async function connect() {
     // - Saved encrypted networks: password optional (uses stored credential)
     // - Open networks: no password needed
     if (requiresPassword && !password && !known) {
-        showNotification('Bitte Passwort eingeben', 'error');
+        showNotification(t('notification.password.required'), 'error');
         return;
     }
 
@@ -985,32 +1096,32 @@ async function connect() {
             throw new Error(response.error);
         }
 
-        showNotification(`Verbindung zu "${state.selectedNetwork.ssid}" wird hergestellt...`, 'success');
+        showNotification(t('notification.connect.start', { ssid: state.selectedNetwork.ssid }), 'success');
         hideConnectSection();
 
         // Refresh status after 3 seconds
         setTimeout(updateStatus, 3000);
     } catch(error) {
-        const message = error && error.message ? error.message : 'Unbekannter Fehler';
-        showNotification('Verbindung fehlgeschlagen: ' + message, 'error');
+        const message = error && error.message ? error.message : error;
+        showNotification(t('notification.connect.failed', { error: message }), 'error');
     } finally {
         document.getElementById('connect-btn').disabled = false;
     }
 }
 
 async function disconnect() {
-    if (!confirm('Verbindung wirklich trennen?')) return;
+    if (!confirm(t('confirm.disconnect'))) return;
 
     try {
         const response = await API.post('/api/disconnect', {});
         if (response && response.error) {
             throw new Error(response.error);
         }
-        showNotification('Verbindung getrennt', 'success');
+        showNotification(t('notification.disconnect.success'), 'success');
         updateStatus();
     } catch(error) {
-        const message = error && error.message ? error.message : 'Unbekannter Fehler';
-        showNotification('Fehler beim Trennen: ' + message, 'error');
+        const message = error && error.message ? error.message : error;
+        showNotification(t('notification.disconnect.failed', { error: message }), 'error');
     }
 }
 
@@ -1098,6 +1209,9 @@ function createBandButtons(config) {
 
 // Event listener setup
 document.addEventListener('DOMContentLoaded', async () => {
+    await initTranslations();
+    applyTranslationsToDOM();
+
     // Load config and initialize band buttons
     await loadConfig();
 
