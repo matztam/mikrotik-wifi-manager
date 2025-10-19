@@ -22,6 +22,28 @@ const char* MIKROTIK_WLAN_INTERFACE = "wlan1";
 const char* BAND_2GHZ = "2ghz-b/g/n";      // Or 2ghz-g/n; 2ghz-n
 const char* BAND_5GHZ = "5ghz-a/n";      // Or "5ghz-a/n/ac" if the device supports it
 
+// Scan behaviour
+const int SCAN_DURATION_SECONDS = 5;        // MikroTik scan duration parameter
+const int SCAN_RESULT_GRACE_MS = 2000;      // Extra wait time after duration before timing out
+const int SCAN_POLL_INTERVAL_MS = 500;      // Interval between scan result polls
+const char* SCAN_CSV_FILENAME = "tmp1/wlan-scan.csv";
+
+// JSON buffer sizes (increase if MikroTik responses grow)
+const size_t JSON_BUFFER_INTERFACES = 4096;
+const size_t JSON_BUFFER_SECURITY_PROFILES = 12288;
+const size_t JSON_BUFFER_SECURITY_PAYLOAD = 512;
+const size_t JSON_BUFFER_DISK = 4096;
+const size_t JSON_BUFFER_DISK_MUTATION = 128;
+const size_t JSON_BUFFER_SCAN_REQUEST = 256;
+const size_t JSON_BUFFER_FILE_LIST = 8192;
+const size_t JSON_BUFFER_SCAN_RESPONSE = 8192;
+const size_t JSON_BUFFER_CONNECT_REQUEST = 1024;
+const size_t JSON_BUFFER_CONNECT_PAYLOAD = 512;
+
+// Signal strength mapping (dBm range -> 0-100%)
+const int SIGNAL_MIN_DBM = -100;
+const int SIGNAL_MAX_DBM = -40;
+
 // ESP32 Webserver Port
 const int WEB_PORT = 80;
 

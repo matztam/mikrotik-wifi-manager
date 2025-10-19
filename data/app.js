@@ -303,7 +303,14 @@ function signalToPercent(signal) {
         return 0;
     }
 
-    const percent = ((value + 100) / 60) * 100;
+    const minDbm = state.config?.signal_min_dbm ?? -100;
+    const maxDbm = state.config?.signal_max_dbm ?? -40;
+    if (minDbm >= maxDbm) {
+        return 0;
+    }
+
+    const clamped = Math.max(minDbm, Math.min(maxDbm, value));
+    const percent = ((clamped - minDbm) / (maxDbm - minDbm)) * 100;
     return Math.min(100, Math.max(0, percent));
 }
 
@@ -323,6 +330,73 @@ function renderSignalQuality(signal) {
             </div>
         </div>
     `;
+}
+
+function buildStatusRows(status, includeNetworkInfo = false) {
+    const rows = [];
+    rows.push({ label: 'SSID', value: status.ssid || '-' });
+    if (status.band) {
+        rows.push({ label: 'Band', value: status.band });
+    }
+    if (status.signal) {
+        rows.push({ label: 'Signal', value: formatSignal(status.signal) });
+    }
+    if (status.snr) {
+        rows.push({ label: 'SNR', value: `${status.snr} dB` });
+    }
+    if (includeNetworkInfo) {
+        if (status.ip) {
+            rows.push({ label: 'IP-Adresse', value: status.ip });
+        }
+        if (status.netmask) {
+            rows.push({ label: 'Netzmaske', value: status.netmask });
+        } else if (status.prefix) {
+            const calculatedNetmask = prefixToNetmask(status.prefix);
+            if (calculatedNetmask) {
+                rows.push({ label: 'Netzmaske', value: calculatedNetmask });
+            }
+        }
+        if (status.gateway) {
+            rows.push({ label: 'Gateway', value: status.gateway });
+        }
+        if (status.dns && status.dns.length) {
+            rows.push({ label: 'DNS-Server', value: status.dns.join(', ') });
+        }
+    }
+    return rows;
+}
+
+function applyStatusPanel(status, elements, options) {
+    const { statusDiv, statusText, detailsDiv, disconnectBtn } = elements;
+    const {
+        cssClass,
+        message,
+        includeNetworkInfo = false,
+        showDisconnect = false,
+        showDetails = true
+    } = options;
+
+    statusDiv.className = cssClass;
+    statusText.textContent = message;
+
+    if (showDetails) {
+        const rows = buildStatusRows(status, includeNetworkInfo);
+        const qualityMarkup = renderSignalQuality(status.signal);
+        const detailsHtml = rows.map(row => `
+            <div class="detail-row">
+                <span class="label">${row.label}:</span>
+                <span>${row.value}</span>
+            </div>
+        `).join('') + qualityMarkup;
+
+        detailsDiv.style.display = detailsHtml ? 'block' : 'none';
+        detailsDiv.innerHTML = detailsHtml;
+    } else {
+        detailsDiv.style.display = 'none';
+        detailsDiv.innerHTML = '';
+    }
+
+    disconnectBtn.style.display = showDisconnect ? 'block' : 'none';
 }
 
 function setBandSelection(band, { triggerScan = false } = {}) {
@@ -393,6 +467,7 @@ async function updateStatus() {
         const statusText = document.getElementById('status-text');
         const detailsDiv = document.getElementById('connection-details');
         const disconnectBtn = document.getElementById('disconnect-btn');
+        const panelElements = { statusDiv, statusText, detailsDiv, disconnectBtn };
 
         state.isConnected = !!status.connected;
         state.isConnecting = !!status.connecting;
@@ -408,73 +483,24 @@ async function updateStatus() {
         }
 
         if (status.connected) {
-            statusDiv.className = 'status-connected';
-            statusText.textContent = 'Verbunden';
-            detailsDiv.style.display = 'block';
-            const rows = [];
-            rows.push({ label: 'SSID', value: status.ssid || '-' });
-            if (status.band) {
-                rows.push({ label: 'Band', value: status.band });
-            }
-            if (status.signal) {
-                rows.push({ label: 'Signal', value: formatSignal(status.signal) });
-            }
-            if (status.snr) {
-                rows.push({ label: 'SNR', value: `${status.snr} dB` });
-            }
-            if (status.ip) {
-                rows.push({ label: 'IP-Adresse', value: status.ip });
-            }
-            if (status.netmask) {
-                rows.push({ label: 'Netzmaske', value: status.netmask });
-            } else if (status.prefix) {
-                const calculatedNetmask = prefixToNetmask(status.prefix);
-                if (calculatedNetmask) {
-                    rows.push({ label: 'Netzmaske', value: calculatedNetmask });
-                }
-            }
-            if (status.gateway) {
-                rows.push({ label: 'Gateway', value: status.gateway });
-            }
-            if (status.dns && status.dns.length) {
-                rows.push({ label: 'DNS-Server', value: status.dns.join(', ') });
-            }
-            const qualityMarkup = renderSignalQuality(status.signal);
-            detailsDiv.innerHTML = rows.map(row => `
-                <div class="detail-row">
-                    <span class="label">${row.label}:</span>
-                    <span>${row.value}</span>
-                </div>
-            `).join('') + qualityMarkup;
-            disconnectBtn.style.display = 'block';
+            applyStatusPanel(status, panelElements, {
+                cssClass: 'status-connected',
+                message: 'Verbunden',
+                includeNetworkInfo: true,
+                showDisconnect: true
+            });
         } else if (status.connecting) {
-            statusDiv.className = 'status-connecting';
-            statusText.textContent = 'Verbindung wird hergestellt';
-            detailsDiv.style.display = 'block';
-            const rows = [];
-            rows.push({ label: 'SSID', value: status.ssid || '-' });
-            if (status.band) {
-                rows.push({ label: 'Band', value: status.band });
-            }
-            if (status.signal) {
-                rows.push({ label: 'Signal', value: formatSignal(status.signal) });
-            }
-            if (status.snr) {
-                rows.push({ label: 'SNR', value: `${status.snr} dB` });
-            }
-            const qualityMarkup = renderSignalQuality(status.signal);
-            detailsDiv.innerHTML = rows.map(row => `
-                <div class="detail-row">
-                    <span class="label">${row.label}:</span>
-                    <span>${row.value}</span>
-                </div>
-            `).join('') + qualityMarkup;
-            disconnectBtn.style.display = 'block';
+            applyStatusPanel(status, panelElements, {
+                cssClass: 'status-connecting',
+                message: 'Verbindung wird hergestellt',
+                showDisconnect: true
+            });
         } else {
-            statusDiv.className = 'status-disconnected';
-            statusText.textContent = 'Nicht verbunden';
-            detailsDiv.style.display = 'none';
-            disconnectBtn.style.display = 'none';
+            applyStatusPanel(status, panelElements, {
+                cssClass: 'status-disconnected',
+                message: 'Nicht verbunden',
+                showDetails: false
+            });
         }
     } catch(error) {
         console.error('Status update failed:', error);
@@ -745,36 +771,50 @@ async function scan(auto = false) {
             return;
         }
 
-        // Step 2: poll for results (every 500 ms)
-        let attempts = 0;
-        const maxAttempts = 20; // ~10 seconds (20 * 500 ms)
+        const pollInterval = startResponse?.poll_interval_ms
+            ?? state.config?.scan_poll_interval_ms
+            ?? 500;
+        const durationMs = startResponse?.duration_ms
+            ?? state.config?.scan_duration_ms
+            ?? 5000;
+        const minReadyMs = startResponse?.min_ready_ms
+            ?? state.config?.scan_min_ready_ms
+            ?? durationMs;
+        const timeoutMs = startResponse?.timeout_ms
+            ?? state.config?.scan_timeout_ms
+            ?? (minReadyMs + (state.config?.scan_result_grace_ms ?? 2000));
+
         let response = null;
+        const scanStart = Date.now();
 
-        while (attempts < maxAttempts) {
-            await new Promise(resolve => setTimeout(resolve, 500));
+        while (true) {
+            const elapsed = Date.now() - scanStart;
 
-            const pollResponse = await API.get('/api/scan/result');
+            if (elapsed >= timeoutMs) {
+                break;
+            }
 
-            // Check status
-            if (pollResponse.status === 'pending') {
-                // Not ready yet, keep waiting
-                attempts++;
+            if (elapsed < minReadyMs) {
+                const waitMs = Math.min(pollInterval, Math.max(0, minReadyMs - elapsed));
+                if (waitMs > 0) {
+                    await new Promise(resolve => setTimeout(resolve, waitMs));
+                }
                 continue;
             }
 
-            // Result received
+            const pollResponse = await API.get('/api/scan/result');
+
+            if (!pollResponse || pollResponse.status === 'pending') {
+                await new Promise(resolve => setTimeout(resolve, pollInterval));
+                continue;
+            }
+
             response = pollResponse;
             break;
         }
 
         if (!response) {
             showNotification('Scan timeout - bitte erneut versuchen', 'error');
-            return;
-        }
-
-        if (!response) {
-            console.error('Empty response from scan API');
-            showNotification('Scan fehlgeschlagen: Keine Daten empfangen', 'error');
             return;
         }
 
@@ -979,6 +1019,16 @@ async function loadConfig() {
         const config = await API.get('/api/config');
         state.config = config;
 
+        state.config.scan_duration_ms = config.scan_duration_ms ?? 5000;
+        state.config.scan_min_ready_ms = config.scan_min_ready_ms ?? state.config.scan_duration_ms;
+        state.config.scan_result_grace_ms = config.scan_result_grace_ms ?? 2000;
+        state.config.scan_poll_interval_ms = config.scan_poll_interval_ms ?? 500;
+        state.config.scan_timeout_ms = config.scan_timeout_ms
+            ?? (state.config.scan_min_ready_ms + state.config.scan_result_grace_ms + state.config.scan_poll_interval_ms);
+        state.config.scan_csv_filename = config.scan_csv_filename ?? 'tmp1/wlan-scan.csv';
+        state.config.signal_min_dbm = config.signal_min_dbm ?? -100;
+        state.config.signal_max_dbm = config.signal_max_dbm ?? -40;
+
         // Initialize networks object based on config
         state.networks = {};
         state.networks[config.band_2ghz] = [];
@@ -994,7 +1044,18 @@ async function loadConfig() {
     } catch(error) {
         console.error('Fehler beim Laden der Config:', error);
         // Fallback to legacy defaults
-        state.config = { band_2ghz: '2ghz-b/g/n', band_5ghz: '5ghz-a/n' };
+        state.config = {
+            band_2ghz: '2ghz-b/g/n',
+            band_5ghz: '5ghz-a/n',
+            scan_duration_ms: 5000,
+            scan_min_ready_ms: 5000,
+            scan_result_grace_ms: 2000,
+            scan_poll_interval_ms: 500,
+            scan_timeout_ms: 7500,
+            scan_csv_filename: 'tmp1/wlan-scan.csv',
+            signal_min_dbm: -100,
+            signal_max_dbm: -40
+        };
         state.networks = { '2ghz-b/g/n': [], '5ghz-a/n': [] };
         state.currentBand = '2ghz-b/g/n';
         createBandButtons(state.config);

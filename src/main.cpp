@@ -35,9 +35,12 @@ struct ScanState {
   bool hasResult = false;
   String result = "";
   unsigned long startTime = 0;
-  String wlanName = "";
   String band = "";
-  String csvFilename = "tmp1/wlan-scan.csv";
+  String csvFilename = "";
+  unsigned long expectedDurationMs = 0;
+  unsigned long minReadyMs = 0;
+  unsigned long resultTimeoutMs = 0;
+  unsigned long pollIntervalMs = 0;
 };
 
 ScanState scanState;
@@ -142,6 +145,35 @@ String mikrotikRequest(String method, String path, String jsonBody = "", int tim
   return response;
 }
 
+bool fetchConfiguredWirelessInterface(String& interfaceIdOut, String& currentBandOut) {
+  String ifaceResponse = mikrotikRequest("GET", "/interface/wireless");
+  DynamicJsonDocument ifaceDoc(JSON_BUFFER_INTERFACES);
+  DeserializationError error = deserializeJson(ifaceDoc, ifaceResponse);
+
+  if (error) {
+    Serial.printf("  ERROR: Failed to parse interface list: %s\n", error.c_str());
+    return false;
+  }
+
+  if (ifaceDoc.is<JsonArray>()) {
+    for (JsonObject iface : ifaceDoc.as<JsonArray>()) {
+      String name = iface["name"] | "";
+      if (name == MIKROTIK_WLAN_INTERFACE) {
+        interfaceIdOut = iface[".id"] | "";
+        currentBandOut = iface["band"] | "";
+        if (interfaceIdOut.length() == 0) {
+          Serial.println("  ERROR: Configured interface found but missing .id");
+          return false;
+        }
+        return true;
+      }
+    }
+  }
+
+  Serial.printf("  ERROR: Configured interface '%s' not found on MikroTik\n", MIKROTIK_WLAN_INTERFACE);
+  return false;
+}
+
 // ==================== SECURITY PROFILE MANAGEMENT ====================
 
 String ensureSecurityProfile(String ssid, String password, bool requiresPassword,
@@ -154,7 +186,7 @@ String ensureSecurityProfile(String ssid, String password, bool requiresPassword
   String comment = String(PROFILE_COMMENT_PREFIX) + ssid;
 
   // Load existing profiles
-  DynamicJsonDocument profilesDoc(12288);  // 12KB for multiple profiles
+  DynamicJsonDocument profilesDoc(JSON_BUFFER_SECURITY_PROFILES);
   String response = mikrotikRequest("GET", "/interface/wireless/security-profiles");
   DeserializationError error = deserializeJson(profilesDoc, response);
   if (error) {
@@ -203,7 +235,7 @@ String ensureSecurityProfile(String ssid, String password, bool requiresPassword
   }
 
   // Build payload
-  DynamicJsonDocument payloadDoc(512);
+  DynamicJsonDocument payloadDoc(JSON_BUFFER_SECURITY_PAYLOAD);
   payloadDoc["comment"] = comment;
 
   if (requiresPassword) {
@@ -258,7 +290,7 @@ String ensureSecurityProfile(String ssid, String password, bool requiresPassword
 
 bool ensureTmpfs() {
   String response = mikrotikRequest("GET", "/disk");
-  DynamicJsonDocument doc(4096);
+  DynamicJsonDocument doc(JSON_BUFFER_DISK);
   DeserializationError error = deserializeJson(doc, response);
 
   if (error) return false;
@@ -276,7 +308,7 @@ bool ensureTmpfs() {
 
   // tmpfs not found, create it
   Serial.println("  tmpfs nicht gefunden, lege an...");
-  DynamicJsonDocument createDoc(128);
+  DynamicJsonDocument createDoc(JSON_BUFFER_DISK_MUTATION);
   createDoc["type"] = "tmpfs";
   createDoc["tmpfs-max-size"] = "1";
   String createBody;
@@ -289,7 +321,7 @@ bool ensureTmpfs() {
 
 void removeTmpfs() {
   String response = mikrotikRequest("GET", "/disk");
-  DynamicJsonDocument doc(4096);
+  DynamicJsonDocument doc(JSON_BUFFER_DISK);
   DeserializationError error = deserializeJson(doc, response);
 
   if (error) return;
@@ -302,7 +334,7 @@ void removeTmpfs() {
         String diskId = disk[".id"] | "";
         if (diskId.length() > 0) {
           Serial.println("  Lösche tmpfs...");
-          DynamicJsonDocument removeDoc(128);
+          DynamicJsonDocument removeDoc(JSON_BUFFER_DISK_MUTATION);
           removeDoc["numbers"] = diskId;
           String removeBody;
           serializeJson(removeDoc, removeBody);
@@ -315,69 +347,26 @@ void removeTmpfs() {
   }
 }
 
-// ==================== CSV SCAN (MINIMAL - FRONTEND HANDLES PARSING) ====================
-
-String getCSVScan(String wlanName, String& fileIdOut) {
-  // Ensure tmpfs exists
-  if (!ensureTmpfs()) {
-    Serial.println("  Warnung: tmpfs nicht verfügbar");
-    return "";
-  }
-
-  // Trigger scan with save-file for better responsiveness
-  String filename = "tmp1/wlan-scan.csv";
-  DynamicJsonDocument scanDoc(256);
-  scanDoc[".id"] = wlanName;
-  scanDoc["duration"] = "5";
-  scanDoc["save-file"] = filename;
-
-  String scanBody;
-  serializeJson(scanDoc, scanBody);
-  mikrotikRequest("POST", "/interface/wireless/scan", scanBody);
-
-  // Wait for CSV file (max 5 seconds)
-  String csvContent = "";
-  fileIdOut = "";
-
-  for (int attempt = 0; attempt < 10; attempt++) {
-    String fileResponse = mikrotikRequest("GET", "/file");
-
-    DynamicJsonDocument filesDoc(8192);
-    DeserializationError error = deserializeJson(filesDoc, fileResponse);
-
-    if (!error && filesDoc.is<JsonArray>()) {
-      for (JsonObject file : filesDoc.as<JsonArray>()) {
-        String fileName = file["name"] | "";
-        if (fileName.endsWith("wlan-scan.csv")) {
-          csvContent = file["contents"] | "";
-          fileIdOut = file[".id"] | "";
-          if (csvContent.length() > 0) {
-            Serial.println("  CSV-Datei gefunden");
-            return csvContent;
-          }
-        }
-      }
-    }
-
-    if (attempt == 0) Serial.println("  Warte auf CSV-Datei...");
-    delay(500);
-  }
-
-  Serial.println("  CSV-Datei nicht gefunden");
-  return "";
-}
-
 // ==================== API HANDLER ====================
 
 void handleConfig() {
-  // Return configured band modes to the frontend
+  // Return configured band modes and runtime parameters to the frontend
   Serial.println("  Config-Abfrage");
 
-  String json = "{";
-  json += "\"band_2ghz\":\"" + String(BAND_2GHZ) + "\",";
-  json += "\"band_5ghz\":\"" + String(BAND_5GHZ) + "\"";
-  json += "}";
+  StaticJsonDocument<256> doc;
+  doc["band_2ghz"] = BAND_2GHZ;
+  doc["band_5ghz"] = BAND_5GHZ;
+  doc["scan_duration_ms"] = SCAN_DURATION_SECONDS * 1000;
+  doc["scan_min_ready_ms"] = SCAN_DURATION_SECONDS * 1000;
+  doc["scan_result_grace_ms"] = SCAN_RESULT_GRACE_MS;
+  doc["scan_timeout_ms"] = SCAN_DURATION_SECONDS * 1000 + SCAN_RESULT_GRACE_MS + SCAN_POLL_INTERVAL_MS;
+  doc["scan_poll_interval_ms"] = SCAN_POLL_INTERVAL_MS;
+  doc["scan_csv_filename"] = SCAN_CSV_FILENAME;
+  doc["signal_min_dbm"] = SIGNAL_MIN_DBM;
+  doc["signal_max_dbm"] = SIGNAL_MAX_DBM;
 
+  String json;
+  serializeJson(doc, json);
   server.send(200, "application/json", json);
 }
 
@@ -411,7 +400,7 @@ void handleStatus() {
 
 void handleScanStart() {
   String band = server.arg("band");
-  if (band == "") band = "2ghz-b/g/n";
+  if (band == "") band = String(BAND_2GHZ);
 
   Serial.printf("  Scan-Start für Band: %s\n", band.c_str());
 
@@ -421,40 +410,23 @@ void handleScanStart() {
     return;
   }
 
-  // Locate wireless interface
-  String ifaceResponse = mikrotikRequest("GET", "/interface/wireless");
-  DynamicJsonDocument ifaceDoc(4096);
-  deserializeJson(ifaceDoc, ifaceResponse);
-
-  String wlanName = "";
-  String wlanId = "";
-
-  if (ifaceDoc.is<JsonArray>()) {
-    for (JsonObject iface : ifaceDoc.as<JsonArray>()) {
-      String name = iface["name"] | "";
-      if (name.indexOf("wlan") >= 0) {
-        wlanName = name;
-        wlanId = iface[".id"] | "";
-
-        // Switch MikroTik band if necessary
-        String currentBand = iface["band"] | "";
-        if (band.length() > 0 && currentBand != band) {
-          Serial.printf("  Wechsle Band: %s → %s\n", currentBand.c_str(), band.c_str());
-          DynamicJsonDocument bandDoc(128);
-          bandDoc["band"] = band;
-          String bandPayload;
-          serializeJson(bandDoc, bandPayload);
-          mikrotikRequest("PATCH", "/interface/wireless/" + wlanId, bandPayload);
-          delay(500);
-        }
-        break;
-      }
-    }
-  }
-
-  if (wlanName.length() == 0) {
-    server.send(404, "application/json", "{\"error\":\"No WLAN interface found\"}");
+  String wlanId;
+  String currentBand;
+  if (!fetchConfiguredWirelessInterface(wlanId, currentBand)) {
+    server.send(404, "application/json", "{\"error\":\"Configured WLAN interface not found\"}");
     return;
+  }
+  String wlanName = String(MIKROTIK_WLAN_INTERFACE);
+
+  // Switch MikroTik band if necessary
+  if (band.length() > 0 && currentBand != band) {
+    Serial.printf("  Wechsle Band: %s -> %s\n", currentBand.c_str(), band.c_str());
+    DynamicJsonDocument bandDoc(JSON_BUFFER_SECURITY_PAYLOAD);
+    bandDoc["band"] = band;
+    String bandPayload;
+    serializeJson(bandDoc, bandPayload);
+    mikrotikRequest("PATCH", "/interface/wireless/" + wlanId, bandPayload);
+    delay(500);
   }
 
   // Ensure tmpfs exists
@@ -469,16 +441,21 @@ void handleScanStart() {
   scanState.hasResult = false;
   scanState.result = "";
   scanState.startTime = millis();
-  scanState.wlanName = wlanName;
   scanState.band = band;
+  scanState.csvFilename = SCAN_CSV_FILENAME;
+  scanState.expectedDurationMs = static_cast<unsigned long>(SCAN_DURATION_SECONDS) * 1000UL;
+  scanState.minReadyMs = scanState.expectedDurationMs;
+  scanState.pollIntervalMs = SCAN_POLL_INTERVAL_MS;
+  scanState.resultTimeoutMs = scanState.expectedDurationMs +
+                              static_cast<unsigned long>(SCAN_RESULT_GRACE_MS) +
+                              scanState.pollIntervalMs;
 
   // Trigger scan on MikroTik with a very short timeout
   // Response is irrelevant; MikroTik continues the scan and CSV is fetched later
-  String filename = scanState.csvFilename;
-  DynamicJsonDocument scanDoc(256);
+  DynamicJsonDocument scanDoc(JSON_BUFFER_SCAN_REQUEST);
   scanDoc[".id"] = wlanName;
-  scanDoc["duration"] = "5";
-  scanDoc["save-file"] = filename;
+  scanDoc["duration"] = String(SCAN_DURATION_SECONDS);
+  scanDoc["save-file"] = scanState.csvFilename;
 
   String scanBody;
   serializeJson(scanDoc, scanBody);
@@ -489,7 +466,17 @@ void handleScanStart() {
   Serial.println("  Scan getriggert (timeout nach 500ms)");
 
   // Immediately confirm that the scan started
-  server.send(200, "application/json", "{\"status\":\"started\"}");
+  StaticJsonDocument<160> responseDoc;
+  responseDoc["status"] = "started";
+  responseDoc["duration_ms"] = scanState.expectedDurationMs;
+  responseDoc["min_ready_ms"] = scanState.minReadyMs;
+  responseDoc["timeout_ms"] = scanState.resultTimeoutMs;
+  responseDoc["poll_interval_ms"] = scanState.pollIntervalMs;
+  responseDoc["csv_filename"] = scanState.csvFilename;
+
+  String response;
+  serializeJson(responseDoc, response);
+  server.send(200, "application/json", response);
 }
 
 void handleScanResult() {
@@ -512,17 +499,22 @@ void handleScanResult() {
     return;
   }
 
-  // Skip CSV lookup if the scan is younger than 4 seconds
+  // Skip CSV lookup until the expected MikroTik scan duration elapsed
   unsigned long elapsedMs = millis() - scanState.startTime;
-  if (elapsedMs < 4000) {
-    Serial.printf("  Scan zu frisch (%lu ms), sende pending\n", elapsedMs);
+  unsigned long minReadyMs = scanState.minReadyMs > 0 ? scanState.minReadyMs
+                                                     : static_cast<unsigned long>(SCAN_DURATION_SECONDS) * 1000UL;
+  unsigned long timeoutMs = scanState.resultTimeoutMs > 0 ? scanState.resultTimeoutMs
+                                                          : (minReadyMs + SCAN_RESULT_GRACE_MS + SCAN_POLL_INTERVAL_MS);
+
+  if (elapsedMs < minReadyMs) {
+    Serial.printf("  Scan zu frisch (%lu/%lu ms), sende pending\n", elapsedMs, minReadyMs);
     server.send(200, "application/json", "{\"status\":\"pending\"}");
     return;
   }
 
-  // Timeout guard (max 10 seconds)
-  if (elapsedMs > 10000) {
-    Serial.println("  Scan timeout!");
+  // Timeout guard
+  if (elapsedMs > timeoutMs) {
+    Serial.printf("  Scan timeout nach %lu ms (Limit %lu ms)\n", elapsedMs, timeoutMs);
     scanState.isScanning = false;
     removeTmpfs();
     server.send(200, "application/json", "{\"status\":\"timeout\",\"error\":\"Scan timeout\"}");
@@ -532,20 +524,22 @@ void handleScanResult() {
   // Scan is between 4-10 seconds old - check if the CSV is available
   // IMPORTANT: no busy waiting, just a quick check
   String fileResponse = mikrotikRequest("GET", "/file");
-  DynamicJsonDocument filesDoc(8192);
+  DynamicJsonDocument filesDoc(JSON_BUFFER_FILE_LIST);
   DeserializationError error = deserializeJson(filesDoc, fileResponse);
 
   String csvContent = "";
   String fileId = "";
 
+  String expectedFile = scanState.csvFilename.length() > 0 ? scanState.csvFilename : String(SCAN_CSV_FILENAME);
+
   if (!error && filesDoc.is<JsonArray>()) {
     for (JsonObject file : filesDoc.as<JsonArray>()) {
       String fileName = file["name"] | "";
-      if (fileName.endsWith("wlan-scan.csv")) {
+      if (fileName == expectedFile) {
         csvContent = file["contents"] | "";
         fileId = file[".id"] | "";
         if (csvContent.length() > 0) {
-          Serial.println("  CSV-Datei gefunden!");
+          Serial.printf("  CSV-Datei gefunden: %s\n", fileName.c_str());
           break;
         }
       }
@@ -554,17 +548,17 @@ void handleScanResult() {
 
   // If CSV not ready yet, return pending (frontend will poll again)
   if (csvContent.length() == 0) {
-    Serial.printf("  CSV noch nicht bereit (%lu ms vergangen)\n", elapsedMs);
+    Serial.printf("  CSV noch nicht bereit (%lu/%lu ms)\n", elapsedMs, timeoutMs);
     server.send(200, "application/json", "{\"status\":\"pending\"}");
     return;
   }
 
   // CSV is available; build response payload
-  DynamicJsonDocument profilesDoc(8192);
+  DynamicJsonDocument profilesDoc(JSON_BUFFER_SCAN_RESPONSE);
   String profilesResponse = mikrotikRequest("GET", "/interface/wireless/security-profiles");
   deserializeJson(profilesDoc, profilesResponse);
 
-  DynamicJsonDocument responseDoc(8192);
+  DynamicJsonDocument responseDoc(JSON_BUFFER_SCAN_RESPONSE);
   responseDoc["csv"] = csvContent;
   responseDoc["band"] = scanState.band;
 
@@ -599,7 +593,7 @@ void handleScanResult() {
 
   // Delete CSV file
   if (fileId.length() > 0) {
-    DynamicJsonDocument removeDoc(128);
+    DynamicJsonDocument removeDoc(JSON_BUFFER_DISK_MUTATION);
     removeDoc["numbers"] = fileId;
     String removeBody;
     serializeJson(removeDoc, removeBody);
@@ -615,12 +609,12 @@ void handleScanResult() {
 void handleConnect() {
   String body = server.arg("plain");
 
-  DynamicJsonDocument doc(1024);
+  DynamicJsonDocument doc(JSON_BUFFER_CONNECT_REQUEST);
   deserializeJson(doc, body);
 
   String ssid = doc["ssid"] | "";
   String password = doc["password"] | "";
-  String band = doc["band"] | "2ghz-b/g/n";
+  String band = String(doc["band"] | BAND_2GHZ);
   bool requiresPassword = doc["requiresPassword"] | true;
   bool known = doc["known"] | false;
   String profileName = doc["profileName"] | "";
@@ -630,29 +624,15 @@ void handleConnect() {
   // Create or update security profile
   String profileNameResult = ensureSecurityProfile(ssid, password, requiresPassword, known, profileName);
 
-  // Retrieve interface ID
-  String ifaceResponse = mikrotikRequest("GET", "/interface/wireless");
-  DynamicJsonDocument ifaceDoc(4096);
-  deserializeJson(ifaceDoc, ifaceResponse);
-
-  String wlanId = "";
-  if (ifaceDoc.is<JsonArray>()) {
-    for (JsonObject iface : ifaceDoc.as<JsonArray>()) {
-      String name = iface["name"] | "";
-      if (name.indexOf("wlan") >= 0) {
-        wlanId = iface[".id"] | "";
-        break;
-      }
-    }
-  }
-
-  if (wlanId.length() == 0) {
-    server.send(404, "application/json", "{\"error\":\"No WLAN interface found\"}");
+  String wlanId;
+  String currentBand;
+  if (!fetchConfiguredWirelessInterface(wlanId, currentBand)) {
+    server.send(404, "application/json", "{\"error\":\"Configured WLAN interface not found\"}");
     return;
   }
 
   // Configure interface
-  DynamicJsonDocument configDoc(512);
+  DynamicJsonDocument configDoc(JSON_BUFFER_CONNECT_PAYLOAD);
   configDoc["mode"] = "station";
   configDoc["ssid"] = ssid;
   configDoc["band"] = band;
@@ -669,25 +649,10 @@ void handleConnect() {
 }
 
 void handleDisconnect() {
-  // Retrieve interface ID
-  String ifaceResponse = mikrotikRequest("GET", "/interface/wireless");
-  DynamicJsonDocument doc(4096);
-  deserializeJson(doc, ifaceResponse);
-
-  String wlanId = "";
-  if (doc.is<JsonArray>()) {
-    for (JsonObject iface : doc.as<JsonArray>()) {
-      String name = iface["name"] | "";
-      String mode = iface["mode"] | "";
-      if (name.indexOf("wlan") >= 0 || mode == "station") {
-        wlanId = iface[".id"] | "";
-        break;
-      }
-    }
-  }
-
-  if (wlanId.length() == 0) {
-    server.send(404, "application/json", "{\"error\":\"No active connection\"}");
+  String wlanId;
+  String currentBand;
+  if (!fetchConfiguredWirelessInterface(wlanId, currentBand)) {
+    server.send(404, "application/json", "{\"error\":\"Configured WLAN interface not found\"}");
     return;
   }
 
