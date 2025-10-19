@@ -125,6 +125,5 @@ misc/           Ignored
 
 ## Further Reading
 
-- `README-ESP32.md` – extra hardware/performance notes (German)
 - MikroTik REST API docs: <https://help.mikrotik.com/docs/display/ROS/REST+API>
 - PlatformIO docs: <https://docs.platformio.org/>
