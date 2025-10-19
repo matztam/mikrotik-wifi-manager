@@ -8,6 +8,8 @@ Firmware and web UI for controlling a MikroTik wireless interface with an ESP32-
 - Compact web UI (LittleFS) with status polling, band switching, and password management
 - Automatic security profile recreation when switching between open and PSK modes
 - Runs fully offline; all traffic stays between ESP32 and MikroTik over HTTP
+- Auto-detects browser language (de/en) and loads UI strings from `/data/i18n`
+- Known networks can be removed from the web UI without touching the router CLI
 
 ## Repository Map
 
@@ -16,6 +18,7 @@ src/            ESP32 firmware (Arduino / PlatformIO)
   main.cpp      Production firmware with web server + MikroTik client
   config.h.*    Configuration template and local copy (gitignored)
 data/           Web UI (HTML, CSS, JS) served from LittleFS
+  i18n/         Translation bundles (en/de) consumed by the frontend
 README-ESP32.md Additional ESP32 notes and troubleshooting (German)
 CLAUDE.md       Agent guide (treat as AGENTS.md)
 misc/           Ignored
@@ -84,6 +87,8 @@ misc/           Ignored
 - **Fixed interface name:** `MIKROTIK_WLAN_INTERFACE` selects the target interface; no runtime discovery.
 - **JSON buffer sizing:** 12 KB for profiles, 8 KB for scan/status responses—do not reduce.
 - **RAM optimizations:** HTTP (no TLS), capped network list (20 entries), frontend hashing, and streaming JSON keep memory stable.
+- **Scan timing is configurable:** `SCAN_DURATION_SECONDS`, `SCAN_RESULT_GRACE_MS`, `SCAN_POLL_INTERVAL_MS`, and `SCAN_CSV_FILENAME` in `config.h` define MikroTik scan length, poll cadence, and CSV storage (values are returned to the frontend so it adapts automatically).
+- **Signal range & buffers in config:** `SIGNAL_MIN_DBM` / `SIGNAL_MAX_DBM` control UI scaling, and JSON buffer constants in `config.h` make it easy to adjust for larger MikroTik payloads.
 
 ## Known Limitations
 

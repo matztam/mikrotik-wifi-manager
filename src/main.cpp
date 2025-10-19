@@ -572,6 +572,7 @@ void handleScanResult() {
         String ssid = comment.substring(strlen(PROFILE_COMMENT_PREFIX));
         JsonObject p = profiles.createNestedObject();
         p["ssid"] = ssid;
+        p["name"] = profile["name"] | "";
         p["mode"] = profile["mode"];
         p["authentication-types"] = profile["authentication-types"];
         Serial.printf("    - Profile for SSID: %s (mode=%s)\n", ssid.c_str(), profile["mode"].as<const char*>());
@@ -645,6 +646,72 @@ void handleConnect() {
   String response = mikrotikRequest("PATCH", "/interface/wireless/" + wlanId, config);
 
   Serial.printf("  ✓ Connected to: %s\n", ssid.c_str());
+  server.send(200, "application/json", "{\"success\":true}");
+}
+
+void handleDeleteProfile() {
+  String body = server.arg("plain");
+
+  DynamicJsonDocument doc(JSON_BUFFER_CONNECT_REQUEST);
+  DeserializationError parseError = deserializeJson(doc, body);
+  if (parseError) {
+    server.send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+    return;
+  }
+
+  String profileName = doc["profileName"] | "";
+  String ssid = doc["ssid"] | "";
+
+  if (profileName.length() == 0 && ssid.length() == 0) {
+    server.send(400, "application/json", "{\"error\":\"Missing profileName or ssid\"}");
+    return;
+  }
+
+  Serial.println("  Delete profile request received");
+
+  DynamicJsonDocument profilesDoc(JSON_BUFFER_SECURITY_PROFILES);
+  String profilesResponse = mikrotikRequest("GET", "/interface/wireless/security-profiles");
+  DeserializationError error = deserializeJson(profilesDoc, profilesResponse);
+  if (error) {
+    Serial.printf("  ERROR: Failed to parse profiles for deletion: %s\n", error.c_str());
+    server.send(500, "application/json", "{\"error\":\"Failed to read profiles\"}");
+    return;
+  }
+
+  String targetName = "";
+  bool isManagedProfile = false;
+  if (profilesDoc.is<JsonArray>()) {
+    for (JsonObject profile : profilesDoc.as<JsonArray>()) {
+      String pName = profile["name"] | "";
+      String pComment = profile["comment"] | "";
+      bool matchesComment = pComment == String(PROFILE_COMMENT_PREFIX) + ssid;
+      if (profileName.length() > 0 && pName == profileName && matchesComment) {
+        targetName = pName;
+        isManagedProfile = true;
+        break;
+      }
+      if (ssid.length() > 0 && matchesComment) {
+        targetName = pName;
+        isManagedProfile = true;
+        break;
+      }
+    }
+  }
+
+  if (targetName.length() == 0 || !isManagedProfile) {
+    server.send(404, "application/json", "{\"error\":\"Managed profile not found\"}");
+    return;
+  }
+
+  Serial.printf("  Deleting profile: %s\n", targetName.c_str());
+  String response = mikrotikRequest("DELETE", "/interface/wireless/security-profiles/" + targetName, "");
+
+  if (response.indexOf("error") != -1) {
+    Serial.printf("  ERROR: Failed to delete profile %s: %s\n", targetName.c_str(), response.c_str());
+    server.send(500, "application/json", "{\"error\":\"Failed to delete profile\"}");
+    return;
+  }
+
   server.send(200, "application/json", "{\"success\":true}");
 }
 
@@ -742,6 +809,7 @@ void setup() {
   server.on("/api/scan/result", HTTP_GET, handleScanResult);
   server.on("/api/connect", HTTP_POST, handleConnect);
   server.on("/api/disconnect", HTTP_POST, handleDisconnect);
+  server.on("/api/profile/delete", HTTP_POST, handleDeleteProfile);
 
   // CORS preflight handlers
   server.on("/api/config", HTTP_OPTIONS, handleCORS);
@@ -750,6 +818,7 @@ void setup() {
   server.on("/api/scan/result", HTTP_OPTIONS, handleCORS);
   server.on("/api/connect", HTTP_OPTIONS, handleCORS);
   server.on("/api/disconnect", HTTP_OPTIONS, handleCORS);
+  server.on("/api/profile/delete", HTTP_OPTIONS, handleCORS);
 
   // Catch-all for static files
   server.onNotFound(handleNotFound);
