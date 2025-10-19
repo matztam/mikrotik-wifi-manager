@@ -25,9 +25,32 @@
 
 const char* PROFILE_COMMENT_PREFIX = "wifi-manager:ssid=";
 
-// ==================== GLOBAL VARIABLES ====================
+const char* CONFIG_FILE_PATH = "/config.json";
+const char* CAPTIVE_PORTAL_SSID = "MikroTikSetup";
+const char* CAPTIVE_PORTAL_PASSWORD = "mikrotik123";
+const unsigned long WIFI_INITIAL_CONNECT_TIMEOUT_MS = 10000;
+const unsigned long WIFI_RECONNECT_INTERVAL_MS = 30000;
+
+struct RuntimeConfig {
+  String wifiSsid;
+  String wifiPassword;
+  String mikrotikIp;
+  String mikrotikUser;
+  String mikrotikPass;
+  String mikrotikToken;
+  String mikrotikWlanInterface;
+  String band2ghz;
+  String band5ghz;
+};
+
+RuntimeConfig runtimeConfig;
 
 WebServer server(WEB_PORT);
+
+bool captivePortalActive = false;
+bool wifiReconnectPending = false;
+unsigned long lastReconnectAttempt = 0;
+bool filesystemAvailable = false;
 
 // Scan State Management
 struct ScanState {
@@ -47,11 +70,135 @@ ScanState scanState;
 
 // ==================== HELPER FUNCTIONS ====================
 
+void applyDefaultConfig(RuntimeConfig& cfg);
+bool loadRuntimeConfigFromFile();
+bool saveRuntimeConfigToFile();
+void attemptWifiConnect();
+void startCaptivePortal();
+void stopCaptivePortal();
+void handleWifiTasks();
+bool ensureOperationAllowed();
+bool isPathAllowedDuringCaptive(const String& path);
+
+void handleSettingsGet();
+void handleSettingsUpdate();
+void handleDeleteProfile();
+
 bool asBool(String value) {
   value.toLowerCase();
   value.trim();
   return (value == "true" || value == "yes" || value == "on" ||
           value == "1" || value == "running" || value == "enabled");
+}
+
+void applyDefaultConfig(RuntimeConfig& cfg) {
+  cfg.wifiSsid = WIFI_SSID;
+  cfg.wifiPassword = WIFI_PASSWORD;
+  cfg.mikrotikIp = MIKROTIK_IP;
+  cfg.mikrotikUser = MIKROTIK_USER;
+  cfg.mikrotikPass = MIKROTIK_PASS;
+  cfg.mikrotikToken = MIKROTIK_TOKEN;
+  cfg.mikrotikWlanInterface = MIKROTIK_WLAN_INTERFACE;
+  cfg.band2ghz = BAND_2GHZ;
+  cfg.band5ghz = BAND_5GHZ;
+}
+
+bool loadRuntimeConfigFromFile() {
+  applyDefaultConfig(runtimeConfig);
+
+  if (!filesystemAvailable) {
+    Serial.println("  WARNING: Filesystem unavailable, using defaults");
+    return false;
+  }
+
+  if (!LittleFS.exists(CONFIG_FILE_PATH)) {
+    saveRuntimeConfigToFile();
+    return true;
+  }
+
+  File file = LittleFS.open(CONFIG_FILE_PATH, "r");
+  if (!file) {
+    Serial.println("  WARNING: Unable to open config file, using defaults");
+    return false;
+  }
+
+  DynamicJsonDocument doc(1536);
+  DeserializationError error = deserializeJson(doc, file);
+  file.close();
+
+  if (error) {
+    Serial.printf("  WARNING: Failed to parse config file: %s\n", error.c_str());
+    return false;
+  }
+
+  JsonObject wifiObj = doc["wifi"].as<JsonObject>();
+  runtimeConfig.wifiSsid = wifiObj["ssid"] | runtimeConfig.wifiSsid;
+  runtimeConfig.wifiPassword = wifiObj["password"] | runtimeConfig.wifiPassword;
+
+  JsonObject mikrotikObj = doc["mikrotik"].as<JsonObject>();
+  runtimeConfig.mikrotikIp = mikrotikObj["ip"] | runtimeConfig.mikrotikIp;
+  runtimeConfig.mikrotikUser = mikrotikObj["user"] | runtimeConfig.mikrotikUser;
+  runtimeConfig.mikrotikPass = mikrotikObj["pass"] | runtimeConfig.mikrotikPass;
+  runtimeConfig.mikrotikToken = mikrotikObj["token"] | runtimeConfig.mikrotikToken;
+  runtimeConfig.mikrotikWlanInterface = mikrotikObj["wlan_interface"] | runtimeConfig.mikrotikWlanInterface;
+
+  JsonObject bandObj = doc["bands"].as<JsonObject>();
+  runtimeConfig.band2ghz = bandObj["band_2ghz"] | runtimeConfig.band2ghz;
+  runtimeConfig.band5ghz = bandObj["band_5ghz"] | runtimeConfig.band5ghz;
+
+  return true;
+}
+
+bool saveRuntimeConfigToFile() {
+  if (!filesystemAvailable) {
+    Serial.println("  ERROR: Cannot save config (filesystem unavailable)");
+    return false;
+  }
+
+  DynamicJsonDocument doc(1536);
+
+  JsonObject wifiObj = doc.createNestedObject("wifi");
+  wifiObj["ssid"] = runtimeConfig.wifiSsid;
+  wifiObj["password"] = runtimeConfig.wifiPassword;
+
+  JsonObject mikrotikObj = doc.createNestedObject("mikrotik");
+  mikrotikObj["ip"] = runtimeConfig.mikrotikIp;
+  mikrotikObj["user"] = runtimeConfig.mikrotikUser;
+  mikrotikObj["pass"] = runtimeConfig.mikrotikPass;
+  mikrotikObj["token"] = runtimeConfig.mikrotikToken;
+  mikrotikObj["wlan_interface"] = runtimeConfig.mikrotikWlanInterface;
+
+  JsonObject bandObj = doc.createNestedObject("bands");
+  bandObj["band_2ghz"] = runtimeConfig.band2ghz;
+  bandObj["band_5ghz"] = runtimeConfig.band5ghz;
+
+  File file = LittleFS.open(CONFIG_FILE_PATH, "w");
+  if (!file) {
+    Serial.println("  ERROR: Unable to open config file for writing");
+    return false;
+  }
+
+  serializeJson(doc, file);
+  file.close();
+  return true;
+}
+
+bool isPathAllowedDuringCaptive(const String& path) {
+  if (path == "/" || path == "/config.html" || path == "/config.js" || path == "/style.css" || path == "/favicon.png" || path == "/favicon.ico" || path == "/favicon@2x.png") {
+    return true;
+  }
+  if (path.startsWith("/i18n/")) {
+    return true;
+  }
+  return false;
+}
+
+bool ensureOperationAllowed() {
+  if (!captivePortalActive) {
+    return true;
+  }
+  server.send(403, "application/json", "{\"error\":\"Captive portal active\"}");
+  return false;
 }
 
 // ==================== FILESYSTEM UTILITIES ====================
@@ -79,6 +226,16 @@ bool handleFileRead(String path) {
     path = "/" + path;
   }
 
+  if (captivePortalActive && !isPathAllowedDuringCaptive(path)) {
+    server.sendHeader("Location", "/config.html");
+    server.send(302, "text/plain", "Redirect");
+    return true;
+  }
+
+  if (captivePortalActive && path == "/index.html") {
+    path = "/config.html";
+  }
+
   String contentType = getContentType(path);
 
   Serial.println("  Attempting to open: " + path);
@@ -103,15 +260,19 @@ String mikrotikRequest(String method, String path, String jsonBody = "", int tim
   http.setTimeout(timeoutMs);
 
   // Use HTTP instead of HTTPS to keep RAM usage low
-  String url = "http://" + String(MIKROTIK_IP) + "/rest" + path;
+  if (runtimeConfig.mikrotikIp.length() == 0) {
+    Serial.println("  ERROR: MikroTik IP not configured");
+    return "{\"error\":\"mikrotik_ip_not_configured\"}";
+  }
+  String url = "http://" + runtimeConfig.mikrotikIp + "/rest" + path;
 
   http.begin(url);
 
   // Authentication: prefer API token, fallback to Basic Auth
-  if (strlen(MIKROTIK_TOKEN) > 0) {
-    http.addHeader("Authorization", "Bearer " + String(MIKROTIK_TOKEN));
+  if (runtimeConfig.mikrotikToken.length() > 0) {
+    http.addHeader("Authorization", "Bearer " + runtimeConfig.mikrotikToken);
   } else {
-    String auth = String(MIKROTIK_USER) + ":" + String(MIKROTIK_PASS);
+    String auth = runtimeConfig.mikrotikUser + ":" + runtimeConfig.mikrotikPass;
     String authEncoded = base64::encode(auth);
     http.addHeader("Authorization", "Basic " + authEncoded);
   }
@@ -158,7 +319,7 @@ bool fetchConfiguredWirelessInterface(String& interfaceIdOut, String& currentBan
   if (ifaceDoc.is<JsonArray>()) {
     for (JsonObject iface : ifaceDoc.as<JsonArray>()) {
       String name = iface["name"] | "";
-      if (name == MIKROTIK_WLAN_INTERFACE) {
+      if (name == runtimeConfig.mikrotikWlanInterface) {
         interfaceIdOut = iface[".id"] | "";
         currentBandOut = iface["band"] | "";
         if (interfaceIdOut.length() == 0) {
@@ -170,7 +331,7 @@ bool fetchConfiguredWirelessInterface(String& interfaceIdOut, String& currentBan
     }
   }
 
-  Serial.printf("  ERROR: Configured interface '%s' not found on MikroTik\n", MIKROTIK_WLAN_INTERFACE);
+  Serial.printf("  ERROR: Configured interface '%s' not found on MikroTik\n", runtimeConfig.mikrotikWlanInterface.c_str());
   return false;
 }
 
@@ -354,8 +515,8 @@ void handleConfig() {
   Serial.println("  Config request");
 
   StaticJsonDocument<256> doc;
-  doc["band_2ghz"] = BAND_2GHZ;
-  doc["band_5ghz"] = BAND_5GHZ;
+  doc["band_2ghz"] = runtimeConfig.band2ghz;
+  doc["band_5ghz"] = runtimeConfig.band5ghz;
   doc["scan_duration_ms"] = SCAN_DURATION_SECONDS * 1000;
   doc["scan_min_ready_ms"] = SCAN_DURATION_SECONDS * 1000;
   doc["scan_result_grace_ms"] = SCAN_RESULT_GRACE_MS;
@@ -370,7 +531,152 @@ void handleConfig() {
   server.send(200, "application/json", json);
 }
 
+void handleSettingsGet() {
+  DynamicJsonDocument doc(1024);
+
+  JsonObject wifiObj = doc.createNestedObject("wifi");
+  wifiObj["ssid"] = runtimeConfig.wifiSsid;
+  wifiObj["has_password"] = runtimeConfig.wifiPassword.length() > 0;
+
+  JsonObject mikrotikObj = doc.createNestedObject("mikrotik");
+  mikrotikObj["ip"] = runtimeConfig.mikrotikIp;
+  mikrotikObj["user"] = runtimeConfig.mikrotikUser;
+  mikrotikObj["has_password"] = runtimeConfig.mikrotikPass.length() > 0;
+  mikrotikObj["has_token"] = runtimeConfig.mikrotikToken.length() > 0;
+  mikrotikObj["wlan_interface"] = runtimeConfig.mikrotikWlanInterface;
+
+  JsonObject bandsObj = doc.createNestedObject("bands");
+  bandsObj["band_2ghz"] = runtimeConfig.band2ghz;
+  bandsObj["band_5ghz"] = runtimeConfig.band5ghz;
+
+  JsonObject statusObj = doc.createNestedObject("status");
+  statusObj["wifi_connected"] = WiFi.status() == WL_CONNECTED;
+  statusObj["captive_portal"] = captivePortalActive;
+  statusObj["ap_ssid"] = CAPTIVE_PORTAL_SSID;
+
+  String output;
+  serializeJson(doc, output);
+  server.send(200, "application/json", output);
+}
+
+void handleSettingsUpdate() {
+  String body = server.arg("plain");
+
+  DynamicJsonDocument doc(1536);
+  DeserializationError error = deserializeJson(doc, body);
+  if (error) {
+    server.send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+    return;
+  }
+
+  bool wifiChanged = false;
+  bool mikrotikChanged = false;
+  bool bandsChanged = false;
+
+  JsonObject wifiObj = doc["wifi"].as<JsonObject>();
+  if (!wifiObj.isNull()) {
+    if (wifiObj.containsKey("ssid")) {
+      String newSsid = wifiObj["ssid"].as<String>();
+      newSsid.trim();
+      runtimeConfig.wifiSsid = newSsid;
+      wifiChanged = true;
+    }
+    if (wifiObj.containsKey("password")) {
+      if (wifiObj["password"].is<String>()) {
+        runtimeConfig.wifiPassword = wifiObj["password"].as<String>();
+        wifiChanged = true;
+      }
+    }
+  }
+
+  JsonObject mikrotikObj = doc["mikrotik"].as<JsonObject>();
+  if (!mikrotikObj.isNull()) {
+    if (mikrotikObj.containsKey("ip")) {
+      String newIp = mikrotikObj["ip"].as<String>();
+      newIp.trim();
+      runtimeConfig.mikrotikIp = newIp;
+      mikrotikChanged = true;
+    }
+    if (mikrotikObj.containsKey("user")) {
+      String newUser = mikrotikObj["user"].as<String>();
+      newUser.trim();
+      runtimeConfig.mikrotikUser = newUser;
+      mikrotikChanged = true;
+    }
+    if (mikrotikObj.containsKey("password")) {
+      if (mikrotikObj["password"].is<String>()) {
+        runtimeConfig.mikrotikPass = mikrotikObj["password"].as<String>();
+        mikrotikChanged = true;
+      }
+    }
+    if (mikrotikObj.containsKey("token")) {
+      if (mikrotikObj["token"].is<String>()) {
+        runtimeConfig.mikrotikToken = mikrotikObj["token"].as<String>();
+        mikrotikChanged = true;
+      }
+    }
+    if (mikrotikObj.containsKey("wlan_interface")) {
+      String newIface = mikrotikObj["wlan_interface"].as<String>();
+      newIface.trim();
+      runtimeConfig.mikrotikWlanInterface = newIface;
+      mikrotikChanged = true;
+    }
+  }
+
+  JsonObject bandsObj = doc["bands"].as<JsonObject>();
+  if (!bandsObj.isNull()) {
+    if (bandsObj.containsKey("band_2ghz")) {
+      String newBand2 = bandsObj["band_2ghz"].as<String>();
+      newBand2.trim();
+      runtimeConfig.band2ghz = newBand2;
+      bandsChanged = true;
+    }
+    if (bandsObj.containsKey("band_5ghz")) {
+      String newBand5 = bandsObj["band_5ghz"].as<String>();
+      newBand5.trim();
+      runtimeConfig.band5ghz = newBand5;
+      bandsChanged = true;
+    }
+  }
+
+  if (!(wifiChanged || mikrotikChanged || bandsChanged)) {
+    DynamicJsonDocument response(128);
+    response["success"] = true;
+    response["wifi_changed"] = false;
+    response["mikrotik_changed"] = false;
+    response["bands_changed"] = false;
+    response["captive_portal"] = captivePortalActive;
+    String output;
+    serializeJson(response, output);
+    server.send(200, "application/json", output);
+    return;
+  }
+
+  if (!saveRuntimeConfigToFile()) {
+    server.send(500, "application/json", "{\"error\":\"Failed to save configuration\"}");
+    return;
+  }
+
+  if (wifiChanged) {
+    wifiReconnectPending = true;
+    lastReconnectAttempt = 0;
+    startCaptivePortal();
+  }
+
+  DynamicJsonDocument response(256);
+  response["success"] = true;
+  response["wifi_changed"] = wifiChanged;
+  response["mikrotik_changed"] = mikrotikChanged;
+  response["bands_changed"] = bandsChanged;
+  response["captive_portal"] = captivePortalActive;
+
+  String output;
+  serializeJson(response, output);
+  server.send(200, "application/json", output);
+}
+
 void handleStatus() {
+  if (!ensureOperationAllowed()) return;
   // Raw passthrough: ESP32 only forwards data, frontend parses it
   Serial.println("  Status request: collecting MikroTik data...");
 
@@ -399,8 +705,9 @@ void handleStatus() {
 }
 
 void handleScanStart() {
+  if (!ensureOperationAllowed()) return;
   String band = server.arg("band");
-  if (band == "") band = String(BAND_2GHZ);
+  if (band == "") band = runtimeConfig.band2ghz;
 
   Serial.printf("  Scan start for band: %s\n", band.c_str());
 
@@ -416,7 +723,7 @@ void handleScanStart() {
     server.send(404, "application/json", "{\"error\":\"Configured WLAN interface not found\"}");
     return;
   }
-  String wlanName = String(MIKROTIK_WLAN_INTERFACE);
+  String wlanName = runtimeConfig.mikrotikWlanInterface;
 
   // Switch MikroTik band if necessary
   if (band.length() > 0 && currentBand != band) {
@@ -480,6 +787,7 @@ void handleScanStart() {
 }
 
 void handleScanResult() {
+  if (!ensureOperationAllowed()) return;
   Serial.println("  Scan result requested");
 
   // Serve cached result if one exists
@@ -608,6 +916,7 @@ void handleScanResult() {
 }
 
 void handleConnect() {
+  if (!ensureOperationAllowed()) return;
   String body = server.arg("plain");
 
   DynamicJsonDocument doc(JSON_BUFFER_CONNECT_REQUEST);
@@ -615,7 +924,7 @@ void handleConnect() {
 
   String ssid = doc["ssid"] | "";
   String password = doc["password"] | "";
-  String band = String(doc["band"] | BAND_2GHZ);
+  String band = String(doc["band"] | runtimeConfig.band2ghz);
   bool requiresPassword = doc["requiresPassword"] | true;
   bool known = doc["known"] | false;
   String profileName = doc["profileName"] | "";
@@ -650,6 +959,7 @@ void handleConnect() {
 }
 
 void handleDeleteProfile() {
+  if (!ensureOperationAllowed()) return;
   String body = server.arg("plain");
 
   DynamicJsonDocument doc(JSON_BUFFER_CONNECT_REQUEST);
@@ -716,6 +1026,7 @@ void handleDeleteProfile() {
 }
 
 void handleDisconnect() {
+  if (!ensureOperationAllowed()) return;
   String wlanId;
   String currentBand;
   if (!fetchConfiguredWirelessInterface(wlanId, currentBand)) {
@@ -748,6 +1059,83 @@ void handleNotFound() {
   server.send(404, "text/plain", "404: Not Found");
 }
 
+void attemptWifiConnect() {
+  if (runtimeConfig.wifiSsid.length() == 0) {
+    Serial.println("No WiFi SSID configured, skipping connection attempt");
+    return;
+  }
+
+  Serial.printf("Attempting WiFi connection to: %s\n", runtimeConfig.wifiSsid.c_str());
+  WiFi.disconnect(true);
+  delay(100);
+
+  if (runtimeConfig.wifiPassword.length() > 0) {
+    WiFi.begin(runtimeConfig.wifiSsid.c_str(), runtimeConfig.wifiPassword.c_str());
+  } else {
+    WiFi.begin(runtimeConfig.wifiSsid.c_str());
+  }
+
+  lastReconnectAttempt = millis();
+}
+
+void startCaptivePortal() {
+  if (captivePortalActive) return;
+  Serial.printf("Starting captive portal: SSID='%s'\n", CAPTIVE_PORTAL_SSID);
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.softAP(CAPTIVE_PORTAL_SSID, CAPTIVE_PORTAL_PASSWORD);
+  captivePortalActive = true;
+}
+
+void stopCaptivePortal() {
+  if (!captivePortalActive) return;
+  Serial.println("Stopping captive portal");
+  WiFi.softAPdisconnect(true);
+  WiFi.mode(WIFI_STA);
+  captivePortalActive = false;
+}
+
+void handleWifiTasks() {
+  static bool lastConnected = false;
+
+  wl_status_t status = WiFi.status();
+  bool connected = status == WL_CONNECTED;
+
+  if (connected) {
+    if (!lastConnected) {
+      Serial.println("WiFi connected!");
+      Serial.print("IP address: ");
+      Serial.println(WiFi.localIP());
+    }
+    if (captivePortalActive) {
+      stopCaptivePortal();
+    }
+    lastConnected = true;
+    return;
+  }
+
+  if (lastConnected) {
+    Serial.println("WiFi connection lost");
+  }
+  lastConnected = false;
+
+  if (runtimeConfig.wifiSsid.length() == 0) {
+    if (!captivePortalActive) {
+      startCaptivePortal();
+    }
+    return;
+  }
+
+  if (!captivePortalActive) {
+    startCaptivePortal();
+  }
+
+  unsigned long now = millis();
+  if (wifiReconnectPending || now - lastReconnectAttempt > WIFI_RECONNECT_INTERVAL_MS) {
+    attemptWifiConnect();
+    wifiReconnectPending = false;
+  }
+}
+
 // ==================== SETUP & LOOP ====================
 
 void setup() {
@@ -764,11 +1152,14 @@ void setup() {
 
   // Initialize LittleFS
   Serial.println("Initializing LittleFS...");
+  bool fsAvailable = false;
   if (!LittleFS.begin(true)) {
     Serial.println("ERROR: LittleFS mount failed!");
     Serial.println("Please run 'pio run --target uploadfs'!");
   } else {
     Serial.println("LittleFS mounted successfully");
+    fsAvailable = true;
+    filesystemAvailable = true;
 
     // List files
     Serial.println("\nFiles in filesystem:");
@@ -781,25 +1172,37 @@ void setup() {
     Serial.println();
   }
 
-  // Connect to WiFi
-  Serial.printf("Connecting to WiFi: %s\n", WIFI_SSID);
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 30) {
-    delay(500);
-    Serial.print(".");
-    attempts++;
+  if (fsAvailable) {
+    if (!loadRuntimeConfigFromFile()) {
+      Serial.println("Using default configuration values (config file missing or invalid)");
+    }
+  } else {
+    applyDefaultConfig(runtimeConfig);
   }
 
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("\nWiFi connected!");
-    Serial.print("IP address: ");
-    Serial.println(WiFi.localIP());
+  WiFi.mode(WIFI_STA);
+  WiFi.setAutoReconnect(false);
+
+  if (runtimeConfig.wifiSsid.length() > 0) {
+    attemptWifiConnect();
+    unsigned long connectStart = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - connectStart < WIFI_INITIAL_CONNECT_TIMEOUT_MS) {
+      delay(250);
+    }
+
+    if (WiFi.status() == WL_CONNECTED) {
+      Serial.println("WiFi connected!");
+      Serial.print("IP address: ");
+      Serial.println(WiFi.localIP());
+      lastReconnectAttempt = millis();
+    } else {
+      Serial.println("Initial WiFi connection failed, enabling captive portal");
+      startCaptivePortal();
+      wifiReconnectPending = true;
+    }
   } else {
-    Serial.println("\nWiFi connection failed!");
-    Serial.println("Starting web server anyway...");
+    Serial.println("No WiFi configuration found, enabling captive portal");
+    startCaptivePortal();
   }
 
   // Register API routes
@@ -810,6 +1213,8 @@ void setup() {
   server.on("/api/connect", HTTP_POST, handleConnect);
   server.on("/api/disconnect", HTTP_POST, handleDisconnect);
   server.on("/api/profile/delete", HTTP_POST, handleDeleteProfile);
+  server.on("/api/settings", HTTP_GET, handleSettingsGet);
+  server.on("/api/settings", HTTP_POST, handleSettingsUpdate);
 
   // CORS preflight handlers
   server.on("/api/config", HTTP_OPTIONS, handleCORS);
@@ -819,6 +1224,7 @@ void setup() {
   server.on("/api/connect", HTTP_OPTIONS, handleCORS);
   server.on("/api/disconnect", HTTP_OPTIONS, handleCORS);
   server.on("/api/profile/delete", HTTP_OPTIONS, handleCORS);
+  server.on("/api/settings", HTTP_OPTIONS, handleCORS);
 
   // Catch-all for static files
   server.onNotFound(handleNotFound);
@@ -826,10 +1232,15 @@ void setup() {
   server.begin();
   Serial.printf("Web server started on port %d\n", WEB_PORT);
   Serial.println("\n=== Ready! ===");
-  Serial.printf("Open: http://%s/\n\n", WiFi.localIP().toString().c_str());
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.printf("Open: http://%s/\n\n", WiFi.localIP().toString().c_str());
+  } else {
+    Serial.printf("Configure via captive portal SSID '%s' (default IP 192.168.4.1)\n\n", CAPTIVE_PORTAL_SSID);
+  }
 }
 
 void loop() {
   server.handleClient();
+  handleWifiTasks();
   delay(2);
 }

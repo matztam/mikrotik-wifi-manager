@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title data-i18n="config.title">config.title</title>
+    <link rel="icon" type="image/png" href="/favicon.png">
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <nav class="top-nav">
+        <a href="/" data-i18n="nav.home">nav.home</a>
+        <a href="/config.html" data-i18n="nav.config">nav.config</a>
+    </nav>
+
+    <div id="toast-container" class="toast hidden"></div>
+
+    <div class="container" id="settings-container">
+        <div class="card">
+            <h2 data-i18n="config.title">config.title</h2>
+            <p id="status-message" class="subtitle" data-i18n="config.status.disconnected">config.status.disconnected</p>
+            <p class="subtitle" data-i18n="config.notice.password">config.notice.password</p>
+
+            <div class="form-section">
+                <h3 data-i18n="config.section.wifi">config.section.wifi</h3>
+                <label class="connect-label" for="wifi-ssid" data-i18n="config.label.wifiSsid">config.label.wifiSsid</label>
+                <input type="text" id="wifi-ssid" class="input-field" placeholder="config.label.wifiSsid" data-i18n-placeholder="config.label.wifiSsid">
+
+                <label class="connect-label" for="wifi-password" data-i18n="config.label.wifiPassword">config.label.wifiPassword</label>
+                <input type="password" id="wifi-password" class="input-field" placeholder="******">
+                <label class="checkbox-inline">
+                    <input type="checkbox" id="wifi-clear-password">
+                    <span data-i18n="config.clear.wifiPassword">config.clear.wifiPassword</span>
+                </label>
+            </div>
+
+            <div class="form-section">
+                <h3 data-i18n="config.section.mikrotik">config.section.mikrotik</h3>
+                <label class="connect-label" for="mikrotik-ip" data-i18n="config.label.mikrotikIp">config.label.mikrotikIp</label>
+                <input type="text" id="mikrotik-ip" class="input-field" placeholder="192.168.88.1">
+
+                <label class="connect-label" for="mikrotik-user" data-i18n="config.label.mikrotikUser">config.label.mikrotikUser</label>
+                <input type="text" id="mikrotik-user" class="input-field" placeholder="api-user">
+
+                <label class="connect-label" for="mikrotik-password" data-i18n="config.label.mikrotikPassword">config.label.mikrotikPassword</label>
+                <input type="password" id="mikrotik-password" class="input-field" placeholder="******">
+                <label class="checkbox-inline">
+                    <input type="checkbox" id="mikrotik-clear-password">
+                    <span data-i18n="config.clear.mikrotikPassword">config.clear.mikrotikPassword</span>
+                </label>
+
+                <label class="connect-label" for="mikrotik-token" data-i18n="config.label.mikrotikToken">config.label.mikrotikToken</label>
+                <input type="text" id="mikrotik-token" class="input-field" placeholder="">
+                <label class="checkbox-inline">
+                    <input type="checkbox" id="mikrotik-clear-token">
+                    <span data-i18n="config.clear.mikrotikToken">config.clear.mikrotikToken</span>
+                </label>
+
+                <label class="connect-label" for="mikrotik-interface" data-i18n="config.label.mikrotikInterface">config.label.mikrotikInterface</label>
+                <input type="text" id="mikrotik-interface" class="input-field" placeholder="wlan1">
+            </div>
+
+            <div class="form-section">
+                <h3 data-i18n="config.section.bands">config.section.bands</h3>
+                <label class="connect-label" for="band-2g" data-i18n="config.label.band2">config.label.band2</label>
+                <input type="text" id="band-2g" class="input-field" placeholder="2ghz-b/g/n">
+
+                <label class="connect-label" for="band-5g" data-i18n="config.label.band5">config.label.band5</label>
+                <input type="text" id="band-5g" class="input-field" placeholder="5ghz-a/n">
+            </div>
+
+            <div class="button-group">
+                <button type="button" id="save-btn" class="btn btn-success" data-i18n="config.button.save">config.button.save</button>
+                <a href="/" class="btn btn-secondary" data-i18n="config.button.cancel">config.button.cancel</a>
+            </div>
+        </div>
+    </div>
+
+    <script src="/config.js"></script>
+</body>
+</html>
