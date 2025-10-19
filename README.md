@@ -30,7 +30,6 @@ misc/           Ignored
 - ESP32-S2 board with ≥ 4 MB flash (e.g., ESP32-S2-Saola-1)
 - MikroTik RouterOS with REST API enabled (`/ip service enable rest`; disable `www-ssl` if unused)
 - Shared 2.4 GHz Wi-Fi network the ESP32 can join
-- Optional: REST API token (recommended over Basic Auth)
 - Typical footprint: ~113 KB RAM, ~360 KB flash (firmware + web assets)
 
 > **Note:** The firmware uses HTTP (no TLS) to keep RAM usage low. Deploy only in trusted networks.
@@ -68,6 +67,7 @@ misc/           Ignored
 - If the ESP32 cannot join the configured Wi-Fi (or no SSID has been set), it will start a captive portal (`SSID: MikroTikSetup`, default IP `192.168.4.1`). Only the configuration UI is reachable in this mode; the device keeps retrying the station connection in the background.
 - Saving new Wi-Fi settings automatically triggers a reconnect attempt. Leave password/token fields empty to retain the currently stored credentials.
 - Runtime settings persist in `/config.json` on LittleFS; the file is created automatically if it does not exist.
+- Scan duration can be adjusted from the UI; changes apply immediately and the value is persisted alongside other settings.
 
 ## Prepare the MikroTik
 
