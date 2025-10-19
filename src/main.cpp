@@ -1,13 +1,13 @@
 /**
- * MikroTik WiFi Manager für ESP32 - Optimierte Version
+ * MikroTik WiFi Manager for ESP32 - optimized variant.
  *
- * PlatformIO Projekt
+ * PlatformIO project
  *
  * Installation:
- * 1. Kopiere src/config.h.example zu src/config.h
- * 2. Passe src/config.h an (WiFi, MikroTik IP, Token)
- * 3. pio run --target uploadfs  (lädt data/ Ordner hoch)
- * 4. pio run --target upload    (lädt Code hoch)
+ * 1. Copy src/config.h.example to src/config.h
+ * 2. Adjust src/config.h (WiFi, MikroTik IP, token)
+ * 3. pio run --target uploadfs  (uploads data/ directory)
+ * 4. pio run --target upload    (uploads firmware)
  */
 
 #include <Arduino.h>
@@ -18,14 +18,14 @@
 #include <base64.h>
 #include <LittleFS.h>
 
-// Konfiguration aus separater Datei laden
+// Load configuration from separate header
 #include "config.h"
 
-// ==================== KONSTANTEN ====================
+// ==================== CONSTANTS ====================
 
 const char* PROFILE_COMMENT_PREFIX = "wifi-manager:ssid=";
 
-// ==================== GLOBALE VARIABLEN ====================
+// ==================== GLOBAL VARIABLES ====================
 
 WebServer server(WEB_PORT);
 
@@ -42,7 +42,7 @@ struct ScanState {
 
 ScanState scanState;
 
-// ==================== HELPER FUNKTIONEN ====================
+// ==================== HELPER FUNCTIONS ====================
 
 bool asBool(String value) {
   value.toLowerCase();
@@ -51,7 +51,7 @@ bool asBool(String value) {
           value == "1" || value == "running" || value == "enabled");
 }
 
-// ==================== DATEISYSTEM FUNKTIONEN ====================
+// ==================== FILESYSTEM UTILITIES ====================
 
 String getContentType(String filename) {
   if (filename.endsWith(".html")) return "text/html";
@@ -71,14 +71,14 @@ bool handleFileRead(String path) {
     path += "index.html";
   }
 
-  // LittleFS erwartet Pfade MIT führendem /
+  // LittleFS expects paths WITH a leading slash
   if (!path.startsWith("/")) {
     path = "/" + path;
   }
 
   String contentType = getContentType(path);
 
-  Serial.println("  Versuche zu öffnen: " + path);
+  Serial.println("  Versuche zu oeffnen: " + path);
   if (LittleFS.exists(path)) {
     File file = LittleFS.open(path, "r");
     if (file) {
@@ -93,18 +93,18 @@ bool handleFileRead(String path) {
   return false;
 }
 
-// ==================== MIKROTIK API FUNKTIONEN ====================
+// ==================== MIKROTIK API HELPERS ====================
 
 String mikrotikRequest(String method, String path, String jsonBody = "", int timeoutMs = 15000) {
   HTTPClient http;
   http.setTimeout(timeoutMs);
 
-  // HTTP statt HTTPS für geringeren RAM-Verbrauch
+  // Use HTTP instead of HTTPS to keep RAM usage low
   String url = "http://" + String(MIKROTIK_IP) + "/rest" + path;
 
   http.begin(url);
 
-  // Authentifizierung: Token (bevorzugt) oder Basic Auth
+  // Authentication: prefer API token, fallback to Basic Auth
   if (strlen(MIKROTIK_TOKEN) > 0) {
     http.addHeader("Authorization", "Bearer " + String(MIKROTIK_TOKEN));
   } else {
@@ -146,15 +146,15 @@ String mikrotikRequest(String method, String path, String jsonBody = "", int tim
 
 String ensureSecurityProfile(String ssid, String password, bool requiresPassword,
                              bool known, String profileName) {
-  // Profile-Name vom Frontend oder Fallback
+  // Use profile name from frontend or fall back to truncated SSID
   if (profileName.length() == 0) {
     profileName = "client-" + ssid.substring(0, min(20, (int)ssid.length()));
   }
 
   String comment = String(PROFILE_COMMENT_PREFIX) + ssid;
 
-  // Lade existierende Profile
-  DynamicJsonDocument profilesDoc(12288);  // 12KB für mehrere Profile
+  // Load existing profiles
+  DynamicJsonDocument profilesDoc(12288);  // 12KB for multiple profiles
   String response = mikrotikRequest("GET", "/interface/wireless/security-profiles");
   DeserializationError error = deserializeJson(profilesDoc, response);
   if (error) {
@@ -162,7 +162,7 @@ String ensureSecurityProfile(String ssid, String password, bool requiresPassword
     Serial.printf("  Response size: %d bytes\n", response.length());
   }
 
-  // Suche nach existierendem Profil
+  // Find matching profile if it already exists
   JsonObject targetProfile;
   String existingMode = "";
   if (profilesDoc.is<JsonArray>()) {
@@ -181,12 +181,12 @@ String ensureSecurityProfile(String ssid, String password, bool requiresPassword
     }
   }
 
-  // Bestimme gewünschten Mode
+  // Determine desired security mode
   String desiredMode = requiresPassword ? "dynamic-keys" : "none";
   Serial.printf("  Desired mode: %s (requiresPassword=%d, password.length=%d)\n",
                 desiredMode.c_str(), requiresPassword, password.length());
 
-  // Wenn Profil existiert ABER Mode nicht passt → Lösche und erstelle neu
+  // If profile exists but mode differs -> delete and recreate
   bool needsRecreate = false;
   if (!targetProfile.isNull() && existingMode != desiredMode) {
     Serial.printf("  ⚠ Security mode changed: %s -> %s. Recreating profile.\n",
@@ -194,7 +194,7 @@ String ensureSecurityProfile(String ssid, String password, bool requiresPassword
     String targetName = targetProfile["name"] | profileName;
     String deleteResp = mikrotikRequest("DELETE", "/interface/wireless/security-profiles/" + targetName, "");
     Serial.printf("  DELETE response: %s\n", deleteResp.c_str());
-    targetProfile = JsonObject();  // Markiere als gelöscht
+    targetProfile = JsonObject();  // Mark as deleted
     needsRecreate = true;
   } else if (!targetProfile.isNull()) {
     Serial.printf("  Mode unchanged (%s), will update profile.\n", existingMode.c_str());
@@ -202,7 +202,7 @@ String ensureSecurityProfile(String ssid, String password, bool requiresPassword
     Serial.println("  No existing profile found, will create new one.");
   }
 
-  // Baue Payload
+  // Build payload
   DynamicJsonDocument payloadDoc(512);
   payloadDoc["comment"] = comment;
 
@@ -227,16 +227,16 @@ String ensureSecurityProfile(String ssid, String password, bool requiresPassword
   String payload;
   serializeJson(payloadDoc, payload);
 
-  // Update oder Create
+  // Update or create profile
   if (!targetProfile.isNull() && !needsRecreate) {
-    // Update existierendes Profil (nur wenn Mode gleich bleibt)
+    // Update existing profile (only when mode stays the same)
     String targetName = targetProfile["name"] | profileName;
     Serial.printf("  Updating existing profile: %s\n", targetName.c_str());
     Serial.printf("  Payload: %s\n", payload.c_str());
     mikrotikRequest("PATCH", "/interface/wireless/security-profiles/" + targetName, payload);
     return targetName;
   } else {
-    // Erstelle neues Profil
+    // Create new profile
     if (requiresPassword && password.length() == 0) {
       Serial.println("  ERROR: Password required for secured profile");
       return profileName;
@@ -263,7 +263,7 @@ bool ensureTmpfs() {
 
   if (error) return false;
 
-  // Prüfe ob tmp1 bereits existiert
+  // Check if tmp1 already exists
   if (doc.is<JsonArray>()) {
     for (JsonObject disk : doc.as<JsonArray>()) {
       String mountPoint = disk["mount-point"] | "";
@@ -274,7 +274,7 @@ bool ensureTmpfs() {
     }
   }
 
-  // tmpfs nicht gefunden, erstelle sie
+  // tmpfs not found, create it
   Serial.println("  tmpfs nicht gefunden, lege an...");
   DynamicJsonDocument createDoc(128);
   createDoc["type"] = "tmpfs";
@@ -315,16 +315,16 @@ void removeTmpfs() {
   }
 }
 
-// ==================== CSV SCAN (MINIMAL - Frontend macht Parsing) ====================
+// ==================== CSV SCAN (MINIMAL - FRONTEND HANDLES PARSING) ====================
 
 String getCSVScan(String wlanName, String& fileIdOut) {
-  // Stelle sicher dass tmpfs existiert
+  // Ensure tmpfs exists
   if (!ensureTmpfs()) {
     Serial.println("  Warnung: tmpfs nicht verfügbar");
     return "";
   }
 
-  // Scan mit save-file starten (kürzere Dauer für bessere Responsiveness)
+  // Trigger scan with save-file for better responsiveness
   String filename = "tmp1/wlan-scan.csv";
   DynamicJsonDocument scanDoc(256);
   scanDoc[".id"] = wlanName;
@@ -335,7 +335,7 @@ String getCSVScan(String wlanName, String& fileIdOut) {
   serializeJson(scanDoc, scanBody);
   mikrotikRequest("POST", "/interface/wireless/scan", scanBody);
 
-  // Warte auf CSV-Datei (max 5 Sekunden)
+  // Wait for CSV file (max 5 seconds)
   String csvContent = "";
   fileIdOut = "";
 
@@ -370,7 +370,7 @@ String getCSVScan(String wlanName, String& fileIdOut) {
 // ==================== API HANDLER ====================
 
 void handleConfig() {
-  // Liefere konfigurierte Band-Modi an Frontend
+  // Return configured band modes to the frontend
   Serial.println("  Config-Abfrage");
 
   String json = "{";
@@ -382,17 +382,17 @@ void handleConfig() {
 }
 
 void handleStatus() {
-  // RAW PASSTHROUGH: ESP32 sammelt nur die Daten, Frontend macht Parsing
+  // Raw passthrough: ESP32 only forwards data, frontend parses it
   Serial.println("  Status-Abfrage: Sammle MikroTik-Daten...");
 
-  // Hole alle benötigten Daten von MikroTik
+  // Fetch required data from MikroTik
   String interfacesResp = mikrotikRequest("GET", "/interface/wireless");
   String registrationResp = mikrotikRequest("GET", "/interface/wireless/registration-table");
   String addressesResp = mikrotikRequest("GET", "/ip/address");
   String routesResp = mikrotikRequest("GET", "/ip/route");
   String dnsResp = mikrotikRequest("GET", "/ip/dns");
 
-  // Minimale JSON-Wrapper ohne Parsing (String-Konkatenation)
+  // Minimal JSON wrapper without parsing (string concatenation)
   String output = "{\"interfaces\":";
   output += interfacesResp;
   output += ",\"registration\":";
@@ -415,13 +415,13 @@ void handleScanStart() {
 
   Serial.printf("  Scan-Start für Band: %s\n", band.c_str());
 
-  // Prüfe ob bereits ein Scan läuft
+  // Abort if a scan is already running
   if (scanState.isScanning) {
     server.send(200, "application/json", "{\"status\":\"already_scanning\"}");
     return;
   }
 
-  // Finde WLAN Interface
+  // Locate wireless interface
   String ifaceResponse = mikrotikRequest("GET", "/interface/wireless");
   DynamicJsonDocument ifaceDoc(4096);
   deserializeJson(ifaceDoc, ifaceResponse);
@@ -436,7 +436,7 @@ void handleScanStart() {
         wlanName = name;
         wlanId = iface[".id"] | "";
 
-        // Band ggf. umschalten
+        // Switch MikroTik band if necessary
         String currentBand = iface["band"] | "";
         if (band.length() > 0 && currentBand != band) {
           Serial.printf("  Wechsle Band: %s → %s\n", currentBand.c_str(), band.c_str());
@@ -457,14 +457,14 @@ void handleScanStart() {
     return;
   }
 
-  // Stelle sicher dass tmpfs existiert
+  // Ensure tmpfs exists
   if (!ensureTmpfs()) {
     Serial.println("  Warnung: tmpfs nicht verfügbar");
     server.send(500, "application/json", "{\"error\":\"tmpfs not available\"}");
     return;
   }
 
-  // Setze Scan-Status VOR dem Trigger
+  // Update scan state before triggering
   scanState.isScanning = true;
   scanState.hasResult = false;
   scanState.result = "";
@@ -472,9 +472,8 @@ void handleScanStart() {
   scanState.wlanName = wlanName;
   scanState.band = band;
 
-  // Triggere Scan auf MikroTik mit sehr kurzem Timeout
-  // Wir brauchen die Response nicht - der Scan läuft auf MikroTik weiter
-  // und wir holen das Ergebnis später aus der CSV-Datei
+  // Trigger scan on MikroTik with a very short timeout
+  // Response is irrelevant; MikroTik continues the scan and CSV is fetched later
   String filename = scanState.csvFilename;
   DynamicJsonDocument scanDoc(256);
   scanDoc[".id"] = wlanName;
@@ -484,37 +483,36 @@ void handleScanStart() {
   String scanBody;
   serializeJson(scanDoc, scanBody);
 
-  // Kurzer Timeout (500ms) - nur zum Triggern, Response interessiert uns nicht
+  // Short timeout (500ms) just to trigger; response is ignored
   mikrotikRequest("POST", "/interface/wireless/scan", scanBody, 500);
 
   Serial.println("  Scan getriggert (timeout nach 500ms)");
 
-  // Sende sofort Bestätigung dass Scan gestartet wurde
+  // Immediately confirm that the scan started
   server.send(200, "application/json", "{\"status\":\"started\"}");
 }
 
 void handleScanResult() {
   Serial.println("  Scan-Result abgerufen");
 
-  // Wenn bereits ein Ergebnis gecached ist, sende es
+  // Serve cached result if one exists
   if (scanState.hasResult) {
     server.send(200, "application/json", scanState.result);
 
-    // Lösche Ergebnis nach Abruf und cleanup
+    // Clear cached result after serving
     scanState.hasResult = false;
     scanState.result = "";
     scanState.isScanning = false;
     return;
   }
 
-  // Wenn kein Scan läuft, Fehler
+  // If no scan is running, return informative status
   if (!scanState.isScanning) {
     server.send(200, "application/json", "{\"status\":\"no_result\",\"error\":\"No scan in progress\"}");
     return;
   }
 
-  // Prüfe ob Scan noch zu frisch ist (< 4 Sekunden)
-  // Es macht keinen Sinn, vor 4s nach der CSV zu suchen
+  // Skip CSV lookup if the scan is younger than 4 seconds
   unsigned long elapsedMs = millis() - scanState.startTime;
   if (elapsedMs < 4000) {
     Serial.printf("  Scan zu frisch (%lu ms), sende pending\n", elapsedMs);
@@ -522,7 +520,7 @@ void handleScanResult() {
     return;
   }
 
-  // Timeout check (max 10 Sekunden)
+  // Timeout guard (max 10 seconds)
   if (elapsedMs > 10000) {
     Serial.println("  Scan timeout!");
     scanState.isScanning = false;
@@ -531,8 +529,8 @@ void handleScanResult() {
     return;
   }
 
-  // Scan ist zwischen 4-10s alt - prüfe OB CSV-Datei verfügbar ist
-  // WICHTIG: Nicht aktiv warten, nur schnell nachschauen!
+  // Scan is between 4-10 seconds old - check if the CSV is available
+  // IMPORTANT: no busy waiting, just a quick check
   String fileResponse = mikrotikRequest("GET", "/file");
   DynamicJsonDocument filesDoc(8192);
   DeserializationError error = deserializeJson(filesDoc, fileResponse);
@@ -554,14 +552,14 @@ void handleScanResult() {
     }
   }
 
-  // Wenn CSV-Datei noch nicht da, sage "pending" (Frontend pollt nochmal)
+  // If CSV not ready yet, return pending (frontend will poll again)
   if (csvContent.length() == 0) {
     Serial.printf("  CSV noch nicht bereit (%lu ms vergangen)\n", elapsedMs);
     server.send(200, "application/json", "{\"status\":\"pending\"}");
     return;
   }
 
-  // CSV-Datei ist da! Baue Response
+  // CSV is available; build response payload
   DynamicJsonDocument profilesDoc(8192);
   String profilesResponse = mikrotikRequest("GET", "/interface/wireless/security-profiles");
   deserializeJson(profilesDoc, profilesResponse);
@@ -570,7 +568,7 @@ void handleScanResult() {
   responseDoc["csv"] = csvContent;
   responseDoc["band"] = scanState.band;
 
-  // Füge Profile-Info hinzu (Frontend braucht diese für "known" Status)
+  // Attach profile info (frontend uses this to flag known networks)
   JsonArray profiles = responseDoc.createNestedArray("profiles");
   if (profilesDoc.is<JsonArray>()) {
     Serial.printf("  Adding %d profiles to scan result...\n", profilesDoc.as<JsonArray>().size());
@@ -591,15 +589,15 @@ void handleScanResult() {
   String output;
   serializeJson(responseDoc, output);
 
-  // Sende Ergebnis
+  // Send result
   server.send(200, "application/json", output);
 
-  // Cleanup
+  // Cleanup scan state
   scanState.isScanning = false;
   scanState.hasResult = false;
   scanState.result = "";
 
-  // Lösche CSV-Datei
+  // Delete CSV file
   if (fileId.length() > 0) {
     DynamicJsonDocument removeDoc(128);
     removeDoc["numbers"] = fileId;
@@ -608,7 +606,7 @@ void handleScanResult() {
     mikrotikRequest("POST", "/file/remove", removeBody);
   }
 
-  // Lösche tmpfs
+  // Remove tmpfs
   removeTmpfs();
 
   Serial.println("  CSV-Scan erfolgreich - Ergebnis gesendet");
@@ -629,10 +627,10 @@ void handleConnect() {
 
   Serial.printf("  Verbinde zu: %s\n", ssid.c_str());
 
-  // Erstelle/Update Security Profile
+  // Create or update security profile
   String profileNameResult = ensureSecurityProfile(ssid, password, requiresPassword, known, profileName);
 
-  // Hole Interface-ID
+  // Retrieve interface ID
   String ifaceResponse = mikrotikRequest("GET", "/interface/wireless");
   DynamicJsonDocument ifaceDoc(4096);
   deserializeJson(ifaceDoc, ifaceResponse);
@@ -653,7 +651,7 @@ void handleConnect() {
     return;
   }
 
-  // Konfiguriere Interface
+  // Configure interface
   DynamicJsonDocument configDoc(512);
   configDoc["mode"] = "station";
   configDoc["ssid"] = ssid;
@@ -671,7 +669,7 @@ void handleConnect() {
 }
 
 void handleDisconnect() {
-  // Hole Interface-ID
+  // Retrieve interface ID
   String ifaceResponse = mikrotikRequest("GET", "/interface/wireless");
   DynamicJsonDocument doc(4096);
   deserializeJson(doc, ifaceResponse);
@@ -709,12 +707,12 @@ void handleCORS() {
 void handleNotFound() {
   String path = server.uri();
 
-  // Versuche Datei aus Dateisystem zu laden
+  // Try to serve file from LittleFS
   if (handleFileRead(path)) {
     return;
   }
 
-  // 404
+  // Fallback to 404
   server.send(404, "text/plain", "404: Not Found");
 }
 
@@ -722,9 +720,9 @@ void handleNotFound() {
 
 void setup() {
   Serial.begin(115200);
-  delay(1000);  // Warte auf USB-CDC Verbindung
+  delay(1000);  // Wait for USB-CDC connection
 
-  // Warte bis Serial verfügbar (max 3 Sekunden)
+  // Wait for Serial to become available (max 3 seconds)
   unsigned long start = millis();
   while (!Serial && (millis() - start < 3000)) {
     delay(100);
@@ -732,7 +730,7 @@ void setup() {
 
   Serial.println("\n\n=== MikroTik WiFi Manager (ESP32-S2) ===");
 
-  // LittleFS initialisieren
+  // Initialize LittleFS
   Serial.println("Initialisiere LittleFS...");
   if (!LittleFS.begin(true)) {
     Serial.println("FEHLER: LittleFS Mount fehlgeschlagen!");
@@ -740,7 +738,7 @@ void setup() {
   } else {
     Serial.println("LittleFS erfolgreich gemountet");
 
-    // Dateien auflisten
+    // List files
     Serial.println("\nDateien im Dateisystem:");
     File root = LittleFS.open("/");
     File file = root.openNextFile();
@@ -751,7 +749,7 @@ void setup() {
     Serial.println();
   }
 
-  // WiFi verbinden
+  // Connect to WiFi
   Serial.printf("Verbinde mit WiFi: %s\n", WIFI_SSID);
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
@@ -772,7 +770,7 @@ void setup() {
     Serial.println("Starte trotzdem Webserver...");
   }
 
-  // Routen definieren
+  // Register API routes
   server.on("/api/config", HTTP_GET, handleConfig);
   server.on("/api/status", HTTP_GET, handleStatus);
   server.on("/api/scan/start", HTTP_POST, handleScanStart);
@@ -780,7 +778,7 @@ void setup() {
   server.on("/api/connect", HTTP_POST, handleConnect);
   server.on("/api/disconnect", HTTP_POST, handleDisconnect);
 
-  // CORS
+  // CORS preflight handlers
   server.on("/api/config", HTTP_OPTIONS, handleCORS);
   server.on("/api/status", HTTP_OPTIONS, handleCORS);
   server.on("/api/scan/start", HTTP_OPTIONS, handleCORS);
@@ -788,7 +786,7 @@ void setup() {
   server.on("/api/connect", HTTP_OPTIONS, handleCORS);
   server.on("/api/disconnect", HTTP_OPTIONS, handleCORS);
 
-  // Catch-all für Dateien aus Dateisystem
+  // Catch-all for static files
   server.onNotFound(handleNotFound);
 
   server.begin();
