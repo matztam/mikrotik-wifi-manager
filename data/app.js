@@ -54,6 +54,7 @@ const DEFAULT_TRANSLATIONS = {
     "config.save.success": "Settings saved. The device is reconnecting.",
     "config.save.failed": "Failed to save settings: {error}",
     "config.save.nochanges": "No changes to save.",
+    "config.save.reconnecting": "Settings saved. Attempting to reconnect...",
     "config.validation.ssidRequired": "Wi-Fi SSID is required when saving.",
     "config.validation.scanDurationInvalid": "Scan duration must be a positive number.",
     "config.clear.wifiPassword": "Clear stored Wi-Fi password",
