@@ -10,6 +10,7 @@ Firmware and web UI for controlling a MikroTik wireless interface with an ESP32-
 - Runs fully offline; all traffic stays between ESP32 and MikroTik over HTTP
 - Auto-detects browser language (de/en) and loads UI strings from `/data/i18n`
 - Known networks can be removed from the web UI without touching the router CLI
+- Built-in configuration portal (`/config.html`) with automatic SoftAP fallback when Wi-Fi credentials are missing or invalid
 
 ## Repository Map
 
@@ -60,6 +61,13 @@ misc/           Ignored
    pio device monitor
    ```
    The ESP32 IP address prints once it joins your Wi-Fi.
+
+## Configuration Portal
+
+- Browse to `/config.html` to adjust Wi-Fi credentials, MikroTik access data, or band settings. Password fields remain blank so stored secrets are never echoed back.
+- If the ESP32 cannot join the configured Wi-Fi (or no SSID has been set), it will start a captive portal (`SSID: MikroTikSetup`, default IP `192.168.4.1`). Only the configuration UI is reachable in this mode; the device keeps retrying the station connection in the background.
+- Saving new Wi-Fi settings automatically triggers a reconnect attempt. Leave password/token fields empty to retain the currently stored credentials.
+- Runtime settings persist in `/config.json` on LittleFS; the file is created automatically if it does not exist.
 
 ## Prepare the MikroTik
 
