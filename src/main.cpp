@@ -5,7 +5,7 @@
  *
  * Installation:
  * 1. Copy src/config.h.example to src/config.h
- * 2. Adjust src/config.h (WiFi, MikroTik IP, token)
+ * 2. Adjust src/config.h (WiFi, MikroTik IP, credentials)
  * 3. pio run --target uploadfs  (uploads data/ directory)
  * 4. pio run --target upload    (uploads firmware)
  */
@@ -269,7 +269,6 @@ String mikrotikRequest(String method, String path, String jsonBody = "", int tim
 
   http.begin(url);
 
-  // Authentication: prefer API token, fallback to Basic Auth
   String auth = runtimeConfig.mikrotikUser + ":" + runtimeConfig.mikrotikPass;
   String authEncoded = base64::encode(auth);
   http.addHeader("Authorization", "Basic " + authEncoded);
