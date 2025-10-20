@@ -1,28 +1,36 @@
 # MikroTik WiFi Manager (ESP32-S2)
 
-Firmware and web UI for controlling a MikroTik wireless interface with an ESP32-S2 bridge controller. The ESP32 hosts a lightweight single-page app from LittleFS, proxies scan requests to the router, and exposes connection/profile management directly in the browser.
+MikroTik WiFi Manager turns an ESP32-S2 into a friendly control panel for MikroTik station-mode setups—ideal when you run a Groove or similar antenna on a boat, in a camper, or at a remote site and need to hop between campground or marina Wi-Fi without wrestling with QuickSet. The ESP32 serves a minimal web app that scans, connects, and stores networks from any browser so you can reuse trusted hotspots without QuickSet clobbering your wireless interface configuration.
 
 ## Highlights
 
-- Non-blocking Wi-Fi scans via `/api/scan/start` + `/api/scan/result`, including CSV parsing for WPA/WPA2 detection
-- Compact web UI (LittleFS) with status polling, band switching, and password management
-- Automatic security profile recreation when switching between open and PSK modes
-- Runs fully offline; all traffic stays between ESP32 and MikroTik over HTTP
-- Auto-detects browser language (de/en) and loads UI strings from `/data/i18n`
-- Known networks can be removed from the web UI without touching the router CLI
-- Built-in configuration portal (`/config.html`) with automatic SoftAP fallback when Wi-Fi credentials are missing or invalid
+- Click-to-connect workflow for MikroTik station mode without opening WinBox or QuickSet
+- Saves marina/campground hotspots as MikroTik security profiles and reuses them automatically
+- Mobile-friendly web UI served by the ESP32 (LittleFS) with live status, band switching, and password prompts
+- Non-blocking scan flow so password-protected networks are detected reliably while the ESP32 stays responsive
+- Runs fully offline; every request stays between browser, ESP32, and your MikroTik over plain HTTP
+- Captive configuration portal (`/config.html`) appears automatically when Wi-Fi credentials are missing or invalid
+
+## Typical Scenarios
+
+- Liveaboard boat switching between marina, harbour, and coastal Wi-Fi without plugging in a laptop
+- Campervan or RV hopping between campsite hotspots while keeping an external MikroTik antenna outside
+- Remote installs (farm, cabin, pop-up events) that need a simple touchscreen-friendly way to store trusted SSIDs
+- Technicians preparing MikroTik gear for end users and preloading known networks without touching QuickSet
+
+## Why Not QuickSet?
+
+QuickSet is great for initial MikroTik provisioning, but it is clumsy once the router acts as a roaming station: the UI is hard to use on a phone, it resets wireless profiles when you change networks, and it happily overwrites carefully tuned interface settings. MikroTik WiFi Manager keeps your station configuration intact while giving you a purpose-built interface that anyone on board can use from a phone or tablet.
 
 ## Repository Map
 
 ```
 src/            ESP32 firmware (Arduino / PlatformIO)
   main.cpp      Production firmware with web server + MikroTik client
-  config.h.*    Configuration template and local copy (gitignored)
+  config.h.example Configuration template (copy to gitignored config.h)
 data/           Web UI (HTML, CSS, JS) served from LittleFS
   i18n/         Translation bundles (en/de) consumed by the frontend
-README-ESP32.md Additional ESP32 notes and troubleshooting (German)
-CLAUDE.md       Agent guide (treat as AGENTS.md)
-misc/           Ignored
+doc/            Screenshots and assets referenced by the README
 ```
 
 ## Hardware & Firmware Requirements
@@ -60,6 +68,7 @@ misc/           Ignored
    pio device monitor
    ```
    The ESP32 IP address prints once it joins your Wi-Fi.
+   Bring the board to your boat/camper, power it from 5 V USB, and browse to that IP to manage networks on the MikroTik.
 
 ## Configuration Portal
 
@@ -68,6 +77,7 @@ misc/           Ignored
 - Saving new Wi-Fi settings automatically triggers a reconnect attempt. Leave password/token fields empty to retain the currently stored credentials.
 - Runtime settings persist in `/config.json` on LittleFS; the file is created automatically if it does not exist.
 - Scan duration can be adjusted from the UI; changes apply immediately and the value is persisted alongside other settings.
+- Handy for provisioning: connect once at home, store the campground or marina credentials, and the MikroTik will reconnect automatically when you arrive on site.
 
 ## Prepare the MikroTik
 
@@ -75,34 +85,35 @@ misc/           Ignored
 - Optionally disable HTTPS: `/ip service set www-ssl disabled` (avoids certificate management)
 - Ensure the API user/token can access:
   - `/interface/wireless/*`
-  - `/file` (required for CSV scans)
+  - `/file` (needed because the scan downloads MikroTik's CSV results behind the scenes)
 
 ## Using the Web UI
 
-1. Open `http://<ESP32-IP>/` in a browser.
-2. Press **Scan** and pick a band (buttons are generated from `BAND_*` config values).
-3. ESP32 triggers a scan (`/api/scan/start`); MikroTik stores the result as a CSV file.
-4. After ~4 seconds `/api/scan/result` downloads the CSV, inspects the `privacy` flag, and returns networks + known profiles.
-5. Select a network:
+1. Open `http://<ESP32-IP>/` from any browser (phone, tablet, laptop).
+2. Tap **Scan** and choose the band you want to search (buttons come from the `BAND_*` config values).
+3. The ESP32 starts a MikroTik scan and shows a spinner while the router collects results.
+4. When the results arrive, the UI lists nearby networks and tags ones you already saved.
+
+![Screenshot: Connected to marina Wi-Fi with fresh scan results](doc/screenshot1.png)
+
+5. Pick a network:
    - Open network: connects immediately.
-   - WPA/WPA2 network: enter password; ESP32 creates or updates the security profile on the MikroTik.
-6. `/api/status` returns the raw wireless interface state; the UI polls every 5–10 seconds.
+   - Password-protected network: enter the key once; the ESP32 writes/updates the MikroTik security profile so the hotspot becomes a saved network.
+6. The status card refreshes automatically; you can disconnect or forget the profile straight from the same screen.
+
+![Screenshot: Not connected, saved hotspot selected with connect/cancel/forget actions](doc/screenshot2.png)
 
 ## Key Design Decisions
 
-- **CSV scan is mandatory:** Only the CSV exposes WPA/WPA2 flags.
-- **Security profile recreation:** Mode changes (open ↔ PSK) trigger DELETE + CREATE because PATCH alone is unreliable.
-- **Fixed interface name:** `MIKROTIK_WLAN_INTERFACE` selects the target interface; no runtime discovery.
-- **JSON buffer sizing:** 12 KB for profiles, 8 KB for scan/status responses—do not reduce.
-- **RAM optimizations:** HTTP (no TLS), capped network list (20 entries), frontend hashing, and streaming JSON keep memory stable.
-- **Scan timing is configurable:** `SCAN_DURATION_SECONDS`, `SCAN_RESULT_GRACE_MS`, `SCAN_POLL_INTERVAL_MS`, and `SCAN_CSV_FILENAME` in `config.h` define MikroTik scan length, poll cadence, and CSV storage (values are returned to the frontend so it adapts automatically).
-- **Signal range & buffers in config:** `SIGNAL_MIN_DBM` / `SIGNAL_MAX_DBM` control UI scaling, and JSON buffer constants in `config.h` make it easy to adjust for larger MikroTik payloads.
+- **Protect the station setup:** The firmware talks straight to the configured wireless interface and never runs QuickSet, so your bridge/NAT settings stay untouched.
+- **CSV under the hood:** The firmware fetches MikroTik's CSV scan output asynchronously so secure networks are detected without freezing the UI.
+- **Smart profile handling:** When a hotspot switches between open and WPA/WPA2, the ESP32 deletes and recreates the MikroTik security profile to avoid stale settings.
+- **Resource-aware defaults:** HTTP (no TLS) and tuned ArduinoJson buffers keep the ESP32-S2 stable in the field—raise the buffer constants in `config.h` if your MikroTik responses are larger.
+- **Config governs behaviour:** Interface name, band presets, signal range, and scan timing all live in `config.h` / `/config.json`, so the frontend can display accurate buttons and progress estimates.
 
 ## Known Limitations
 
 - HTTP only between ESP32 and MikroTik; avoid untrusted networks.
-- Maximum of 20 networks per scan result due to RAM constraints.
-- Designed for 1–2 simultaneous browser sessions; more may exhaust memory.
 - ESP32-S2 hardware supports 2.4 GHz Wi-Fi only; 5 GHz networks are invisible.
 
 ## Performance Tips
@@ -111,6 +122,7 @@ misc/           Ignored
 - Slow down frontend polling (e.g., `setInterval(updateStatus, 10000)`) to cut load.
 - Disable optional features such as CORS headers if you do not need cross-origin access.
 - Monitor serial output during scans to spot memory pressure early.
+- Limit simultaneous browser sessions if you notice sluggishness—each tab polls status on a timer.
 
 ## Developer Workflows
 
