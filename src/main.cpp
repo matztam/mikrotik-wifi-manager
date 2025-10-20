@@ -230,6 +230,12 @@ bool handleFileRead(String path) {
     path = "/" + path;
   }
 
+  // Never expose runtime configuration secrets over HTTP
+  if (path == CONFIG_FILE_PATH) {
+    server.send(404, "text/plain", "Not found");
+    return true;
+  }
+
   if (captivePortalActive && !isPathAllowedDuringCaptive(path)) {
     server.sendHeader("Location", "/config.html");
     server.send(302, "text/plain", "Redirect");

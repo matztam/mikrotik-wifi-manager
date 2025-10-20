@@ -132,6 +132,7 @@ doc/            Screenshots and assets referenced by the README
 - Intended for trusted, closed networks only.
 - Secrets live in ESP32 flash (plain text inside `config.h`).
 - Prefer a dedicated MikroTik account with minimum required permissions.
+- Direct file access to `/config.json` is disabled; manage credentials exclusively through the configuration UI or `/api/settings`.
 
 ## Further Reading
 
