@@ -101,14 +101,14 @@ doc/            Screenshots and assets referenced by the README
 3. The ESP32 starts a MikroTik scan and shows a spinner while the router collects results.
 4. When the results arrive, the UI lists nearby networks and tags ones you already saved.
 
-![Screenshot: Connected to marina Wi-Fi with fresh scan results](doc/screenshot1.png)
+<img src="doc/screenshot1.png" alt="Screenshot: Connected to marina Wi-Fi with fresh scan results" width="480">
 
 5. Pick a network:
    - Open network: connects immediately.
    - Password-protected network: enter the key once; the ESP32 writes/updates the MikroTik security profile so the hotspot becomes a saved network.
 6. The status card refreshes automatically; you can disconnect or forget the profile straight from the same screen.
 
-![Screenshot: Not connected, saved hotspot selected with connect/cancel/forget actions](doc/screenshot2.png)
+<img src="doc/screenshot2.png" alt="Screenshot: Not connected, saved hotspot selected with connect/cancel/forget actions" width="480">
 
 ## Key Design Decisions
 
