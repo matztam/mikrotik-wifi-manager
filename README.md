@@ -54,8 +54,9 @@ doc/            Screenshots and assets referenced by the README
    cp src/config.h.example src/config.h
    # WIFI_SSID / WIFI_PASSWORD = Wi-Fi for the ESP32
    # MIKROTIK_*              = router credentials + interface name
-   Credentials can stay blank; set them later via the configuration portal.
    ```
+   Credentials can stay blank; set them later via the configuration portal.
+
 3. **Upload web assets to LittleFS**
    ```bash
    pio run -t uploadfs
