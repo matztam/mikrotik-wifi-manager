@@ -86,6 +86,13 @@ doc/            Screenshots and assets referenced by the README
 - Ensure the API user can access:
   - `/interface/wireless/*`
   - `/file` (needed because the scan downloads MikroTik's CSV results behind the scenes)
+- Create a least-privilege account for the ESP32 (replace the password/IP as needed):
+  ```bash
+  /user group add name=wifi-manager policy=read,write,api,ftp
+  /user add name=wifi-manager group=wifi-manager password=<STRONG_PASSWORD> \
+      allowed-address=<ESP32_IP>/32 comment="ESP32 WiFi Manager"
+  ```
+  Only `read`, `write`, `api`, and `ftp` are required—`api` covers REST calls, and `ftp` unlocks file downloads for the CSV scan. Using `/32` locks access to the ESP32’s IP; widen it only if you manage the device from a different host.
 
 ## Using the Web UI
 
