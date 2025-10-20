@@ -76,7 +76,7 @@ doc/            Screenshots and assets referenced by the README
 
 - Browse to `/config.html` to adjust Wi-Fi credentials, MikroTik access data, or band settings. Password fields remain blank so stored secrets are never echoed back.
 - If the ESP32 cannot join the configured Wi-Fi (or no SSID has been set), it will start a captive portal (`SSID: MikroTikSetup`, default IP `192.168.4.1`). Only the configuration UI is reachable in this mode; the device keeps retrying the station connection in the background.
-- Saving new Wi-Fi settings automatically triggers a reconnect attempt. Leave password/token fields empty to retain the currently stored credentials.
+- Saving new Wi-Fi settings automatically triggers a reconnect attempt. Leave password fields empty to retain the currently stored credentials.
 - Runtime settings persist in `/config.json` on LittleFS; the file is created automatically if it does not exist.
 - Scan duration can be adjusted from the UI; changes apply immediately and the value is persisted alongside other settings.
 
