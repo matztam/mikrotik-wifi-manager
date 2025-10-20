@@ -4,12 +4,13 @@
 // ==================== CONFIGURATION ====================
 
 // WiFi credentials (ESP32 home network)
-const char* WIFI_SSID = "your-wifi-ssid";
-const char* WIFI_PASSWORD = "your-wifi-password";
+// Can stay blank; set them later via the configuration portal.
+const char* WIFI_SSID = "";
+const char* WIFI_PASSWORD = "";
 
 // MikroTik credentials
 const char* MIKROTIK_IP = "192.168.88.1";
-const char* MIKROTIK_USER = "admin";           // Basic Auth username
+const char* MIKROTIK_USER = "wifi-manager";           // Basic Auth username
 const char* MIKROTIK_PASS = "";                // Basic Auth password
 
 // MikroTik WLAN interface name (e.g., "wlan1", "wlan2")
