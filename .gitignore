@@ -21,3 +21,4 @@ Thumbs.db
 # Secrets (local configuration)
 src/config.h
 config.json
+misc/
