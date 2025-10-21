@@ -44,6 +44,11 @@ const size_t JSON_BUFFER_CONNECT_PAYLOAD = 512;
 const int SIGNAL_MIN_DBM = -100;
 const int SIGNAL_MAX_DBM = -40;
 
+// Arduino OTA update configuration
+const bool OTA_ENABLE = true;                 // Set to false to disable Arduino OTA
+const char* OTA_HOSTNAME = "mikrotik-interface";
+const char* OTA_PASSWORD = "";                // Set a strong password before enabling OTA
+
 // ESP32 Webserver Port
 const int WEB_PORT = 80;
 
