@@ -125,15 +125,15 @@ doc/            Screenshots and assets referenced by the README
 
 Arduino OTA is enabled by default:
 
-1. Choose a strong `OTA_PASSWORD` and adjust `OTA_HOSTNAME` in `src/config.h`
-2. Configure PlatformIO to use the network uploader:
+1. Choose a strong `OTA_PASSWORD` and adjust `OTA_HOSTNAME` in `src/config.h`.
+2. Copy `platformio_secrets.ini.example` to `platformio_secrets.ini` (gitignored) and fill in your target:
    ```ini
-   upload_protocol = espota
-   upload_port = <ESP32_IP>
+   [env:esp32-s2-saola-1]
+   upload_port = <ESP32_IP_OR_HOSTNAME>
    upload_flags =
        --auth=<OTA_PASSWORD>
    ```
-3. Flash over Wi-Fi with `pio run --target upload`. The board reboots automatically after a successful transfer.
+3. Run `pio run --target upload`. PlatformIO reads the secret overrides automatically and the board reboots after a successful transfer.
 
 > **Tip:** Need a one-off USB flash? Comment out the OTA block in `platformio.ini`, or override the port on the command line with `--upload-port /dev/ttyACM0`.
 
@@ -147,7 +147,7 @@ Arduino OTA is enabled by default:
 | Serial monitor      | `pio device monitor`    |
 
 
-## Security & Operations
+##    curity & Operations
 
 - Intended for trusted, closed networks only.
 - Secrets live in ESP32 flash (plain text inside `config.h`).
