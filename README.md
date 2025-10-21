@@ -135,7 +135,7 @@ Arduino OTA is enabled by default:
    ```
 3. Run `pio run --target upload`. PlatformIO reads the secret overrides automatically and the board reboots after a successful transfer.
 
-> **Tip:** Need a one-off USB flash? Comment out the OTA block in `platformio.ini`, or override the port on the command line with `--upload-port /dev/ttyACM0`.
+> **Tip:** Need a one-off USB flash? Comment out the extra_configs block in `platformio.ini`, or override the port on the command line with `--upload-port /dev/ttyACM0`.
 
 ## Developer Workflows
 
