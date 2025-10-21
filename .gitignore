@@ -22,3 +22,4 @@ Thumbs.db
 src/config.h
 config.json
 misc/
+platformio_secrets.ini
