@@ -125,7 +125,7 @@ doc/            Screenshots and assets referenced by the README
 
 Arduino OTA is enabled by default:
 
-1. Choose a strong `OTA_PASSWORD` (and optionally adjust `OTA_HOSTNAME`) in `src/config.h` or via the captive portal.
+1. Choose a strong `OTA_PASSWORD` and adjust `OTA_HOSTNAME` in `src/config.h`
 2. Configure PlatformIO to use the network uploader:
    ```ini
    upload_protocol = espota
