@@ -12,6 +12,7 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <ArduinoOTA.h>
 #include <WebServer.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
@@ -51,6 +52,8 @@ bool wifiReconnectPending = false;
 unsigned long lastReconnectAttempt = 0;
 bool filesystemAvailable = false;
 
+bool otaServiceReady = false;
+
 // Scan State Management
 struct ScanState {
   bool isScanning = false;
@@ -79,6 +82,7 @@ void handleWifiTasks();
 bool ensureOperationAllowed();
 bool isPathAllowedDuringCaptive(const String& path);
 
+void setupArduinoOTA();
 void handleSettingsGet();
 void handleSettingsUpdate();
 void handleDeleteProfile();
@@ -663,6 +667,64 @@ void handleSettingsUpdate() {
   server.send(200, "application/json", output);
 }
 
+// ==================== OTA SUPPORT ====================
+
+void setupArduinoOTA() {
+  if (!OTA_ENABLE || otaServiceReady || WiFi.status() != WL_CONNECTED) {
+    return;
+  }
+
+  ArduinoOTA.setHostname(OTA_HOSTNAME);
+  if (OTA_PASSWORD != nullptr && OTA_PASSWORD[0] != '\0') {
+    ArduinoOTA.setPassword(OTA_PASSWORD);
+  }
+
+  ArduinoOTA.onStart([]() {
+    const char* type = ArduinoOTA.getCommand() == U_FLASH ? "firmware" : "filesystem";
+    Serial.printf("ArduinoOTA update started (%s)\n", type);
+  });
+
+  ArduinoOTA.onEnd([]() {
+    Serial.println("ArduinoOTA update finished, restarting...");
+  });
+
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+    if (total == 0) {
+      return;
+    }
+    unsigned int percent = (progress * 100U) / total;
+    Serial.printf("ArduinoOTA progress: %u%%\n", percent);
+  });
+
+  ArduinoOTA.onError([](ota_error_t error) {
+    Serial.printf("ArduinoOTA error[%u]\n", static_cast<unsigned int>(error));
+    switch (error) {
+      case OTA_AUTH_ERROR:
+        Serial.println("  → Auth failed");
+        break;
+      case OTA_BEGIN_ERROR:
+        Serial.println("  → Begin failed");
+        break;
+      case OTA_CONNECT_ERROR:
+        Serial.println("  → Connect failed");
+        break;
+      case OTA_RECEIVE_ERROR:
+        Serial.println("  → Receive failed");
+        break;
+      case OTA_END_ERROR:
+        Serial.println("  → Finalize failed");
+        break;
+      default:
+        Serial.println("  → Unknown error");
+        break;
+    }
+  });
+
+  ArduinoOTA.begin();
+  otaServiceReady = true;
+  Serial.printf("ArduinoOTA ready (hostname: %s)\n", OTA_HOSTNAME);
+}
+
 void handleStatus() {
   if (!ensureOperationAllowed()) return;
   // Fetch required data from MikroTik
@@ -1069,12 +1131,16 @@ void handleWifiTasks() {
     if (captivePortalActive) {
       stopCaptivePortal();
     }
+    if (OTA_ENABLE) {
+      setupArduinoOTA();
+    }
     lastConnected = true;
     return;
   }
 
   if (lastConnected) {
     Serial.println("WiFi connection lost");
+    otaServiceReady = false;
   }
   lastConnected = false;
 
@@ -1145,6 +1211,9 @@ void setup() {
       Serial.print("IP address: ");
       Serial.println(WiFi.localIP());
       lastReconnectAttempt = millis();
+      if (OTA_ENABLE) {
+        setupArduinoOTA();
+      }
     } else {
       Serial.println("Initial WiFi connection failed, enabling captive portal");
       startCaptivePortal();
@@ -1192,5 +1261,8 @@ void setup() {
 void loop() {
   server.handleClient();
   handleWifiTasks();
+  if (OTA_ENABLE && otaServiceReady) {
+    ArduinoOTA.handle();
+  }
   delay(2);
 }
