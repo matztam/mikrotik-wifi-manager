@@ -121,6 +121,22 @@ doc/            Screenshots and assets referenced by the README
 - **Resource-aware defaults:** HTTP (no TLS) and tuned ArduinoJson buffers keep the ESP32-S2 stable in the field—raise the buffer constants in `config.h` if your MikroTik responses are larger.
 - **Config governs behaviour:** Interface name, band presets, signal range, and scan timing all live in `config.h` / `/config.json`, so the frontend can display accurate buttons and progress estimates.
 
+## OTA Firmware Updates
+
+Arduino OTA is enabled by default:
+
+1. Choose a strong `OTA_PASSWORD` (and optionally adjust `OTA_HOSTNAME`) in `src/config.h` or via the captive portal.
+2. Configure PlatformIO to use the network uploader:
+   ```ini
+   upload_protocol = espota
+   upload_port = <ESP32_IP>
+   upload_flags =
+       --auth=<OTA_PASSWORD>
+   ```
+3. Flash over Wi-Fi with `pio run --target upload`. The board reboots automatically after a successful transfer.
+
+> **Tip:** Need a one-off USB flash? Comment out the OTA block in `platformio.ini`, or override the port on the command line with `--upload-port /dev/ttyACM0`.
+
 ## Developer Workflows
 
 | Goal                | Command                 |
