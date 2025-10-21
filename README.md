@@ -82,13 +82,13 @@ doc/            Screenshots and assets referenced by the README
 
 ## Prepare the MikroTik
 
-- Enable the REST service (`/ip service enable rest`)
+- Enable REST API (www)
 - Ensure the API user can access:
   - `/interface/wireless/*`
   - `/file` (needed because the scan downloads MikroTik's CSV results behind the scenes)
 - Create a least-privilege account for the ESP32 (replace the password/IP as needed):
   ```bash
-  /user group add name=wifi-manager policy=read,write,api,rest-api,ftp,test,sensitive
+  /user group add name=wifi-manager policy=read,write,api,rest-api,ftp,test
   /user add name=wifi-manager group=wifi-manager password=<STRONG_PASSWORD> \
       allowed-address=<ESP32_IP>/32 comment="ESP32 WiFi Manager"
   ```
@@ -96,7 +96,6 @@ doc/            Screenshots and assets referenced by the README
   - `read`, `write`, `api`, `rest-api`: REST requests to configure interfaces
   - `ftp`: download the CSV scan results
   - `test`: MikroTik treats `/interface/wireless/scan` as a diagnostic tool; without `test` the scan fails with *not enough permissions (9)*
-  - `sensitive`: required for `/disk` operations (creation/removal of the temporary tmpfs used for CSV export)
   Using `/32` locks access to the ESP32’s IP; widen it only if you manage the device from a different host.
 
 ## Using the Web UI
