@@ -35,6 +35,7 @@ const DEFAULT_TRANSLATIONS = {
     "config.section.wifi": "Wi-Fi Settings",
     "config.section.mikrotik": "MikroTik Settings",
     "config.section.bands": "Band Configuration",
+    "config.section.wireless": "Wireless Settings",
     "config.label.wifiSsid": "Wi-Fi SSID",
     "config.label.wifiPassword": "Wi-Fi Password",
     "config.label.mikrotikIp": "MikroTik IP",
@@ -45,6 +46,7 @@ const DEFAULT_TRANSLATIONS = {
     "config.label.band2": "2.4 GHz Band",
     "config.label.band5": "5 GHz Band",
     "config.label.scanDuration": "Scan duration (seconds)",
+    "config.label.stationRoaming": "Enable Station Roaming",
     "config.button.save": "Save Settings",
     "config.button.cancel": "Cancel",
     "config.status.captive": "Captive portal active. Connect to {ssid} (default IP 192.168.4.1).",
@@ -69,6 +71,7 @@ const DEFAULT_TRANSLATIONS = {
     "scan.status.searching": "Searching for networks...",
     "label.ssid": "SSID",
     "label.password": "Password",
+    "label.connectToSpecificAp": "Connect to this specific access point",
     "input.password.placeholder.required": "Enter password",
     "input.password.placeholder.optional": "Password (leave empty to use saved one)",
     "input.password.placeholder.none": "No password required",
@@ -1112,10 +1115,30 @@ function updatePasswordUI() {
 function showConnectSection() {
     const section = document.getElementById('connect-section');
     const forgetBtn = document.getElementById('forget-btn');
+    const specificApField = document.getElementById('specific-ap-field');
+    const apMacAddress = document.getElementById('ap-mac-address');
+    const connectToSpecificApCheckbox = document.getElementById('connect-to-specific-ap');
 
     document.getElementById('selected-ssid').textContent = state.selectedNetwork.ssid;
     document.getElementById('password-input').value = '';
     updatePasswordUI();
+
+    // Show/hide specific AP option
+    if (specificApField && apMacAddress && connectToSpecificApCheckbox) {
+        if (state.selectedNetwork.mac) {
+            specificApField.style.display = 'block';
+            apMacAddress.textContent = 'MAC: ' + state.selectedNetwork.mac;
+            connectToSpecificApCheckbox.checked = false;
+            apMacAddress.style.display = 'none';
+
+            // Toggle MAC address visibility when checkbox changes
+            connectToSpecificApCheckbox.onchange = () => {
+                apMacAddress.style.display = connectToSpecificApCheckbox.checked ? 'block' : 'none';
+            };
+        } else {
+            specificApField.style.display = 'none';
+        }
+    }
 
     if (forgetBtn) {
         forgetBtn.style.display = state.selectedNetwork.known ? 'inline-block' : 'none';
@@ -1165,13 +1188,19 @@ async function connect() {
         // Generate profile name on the frontend
         const profileName = await generateProfileName(state.selectedNetwork.ssid);
 
+        const connectToSpecificApCheckbox = document.getElementById('connect-to-specific-ap');
+        const connectToSpecificAp = connectToSpecificApCheckbox?.checked || false;
+        const apMacAddress = connectToSpecificAp ? (state.selectedNetwork.mac || '') : '';
+
         const response = await API.post('/api/connect', {
             ssid: state.selectedNetwork.ssid,
             password: password,
             band: state.currentBand,
             known,
             requiresPassword,
-            profileName: profileName
+            profileName: profileName,
+            connectToSpecificAp: connectToSpecificAp,
+            apMacAddress: apMacAddress
         });
 
         if (response && response.error) {
