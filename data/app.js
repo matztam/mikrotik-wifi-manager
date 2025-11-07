@@ -904,7 +904,7 @@ function renderNetworkList() {
     }
 }
 
-async function scan(auto = false) {
+async function scan(auto = false, retryCount = 0) {
     if (state.isScanning) return;
     state.isScanning = true;
     const requestedBand = state.currentBand;
@@ -945,7 +945,24 @@ async function scan(auto = false) {
             ?? (minReadyMs + (state.config?.scan_result_grace_ms ?? 2000));
 
         let response = null;
-        const scanStart = Date.now();
+        // If scan is already running, adjust scanStart to match backend timing
+        const elapsedMs = startResponse?.elapsed_ms ?? 0;
+
+        // If the existing scan has already expired, retry with a new scan
+        if (startResponse.status === 'already_scanning' && elapsedMs >= timeoutMs) {
+            if (retryCount >= 2) {
+                console.error('Max retry attempts reached for expired scan');
+                showNotification(t('notification.scan.failedReason', { error: 'Max retries exceeded' }), 'error');
+                return;
+            }
+            console.log('Existing scan expired, retrying... (attempt ' + (retryCount + 1) + ')');
+            // Reset state and wait a moment for backend cleanup, then retry
+            state.isScanning = false;
+            await new Promise(resolve => setTimeout(resolve, 500));
+            return scan(auto, retryCount + 1);
+        }
+
+        const scanStart = Date.now() - elapsedMs;
 
         while (true) {
             const elapsed = Date.now() - scanStart;

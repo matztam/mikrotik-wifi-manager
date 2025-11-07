@@ -24,8 +24,9 @@ const char* BAND_5GHZ = "5ghz-a/n";      // Or "5ghz-a/n/ac" if the device suppo
 
 // Scan behaviour
 const int SCAN_DURATION_SECONDS = 5;        // MikroTik scan duration parameter
-const int SCAN_RESULT_GRACE_MS = 2000;      // Extra wait time after duration before timing out
+const int SCAN_RESULT_GRACE_MS = 3000;      // Extra wait time after duration before timing out
 const int SCAN_POLL_INTERVAL_MS = 500;      // Interval between scan result polls
+const int SCAN_RESULT_CACHE_MS = 60000;     // Cache scan results for 60 seconds (multiple clients can retrieve)
 const char* SCAN_CSV_FILENAME = "tmp1/wlan-scan.csv";
 
 // JSON buffer sizes (increase if MikroTik responses grow)
