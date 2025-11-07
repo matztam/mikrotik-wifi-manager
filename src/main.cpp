@@ -60,6 +60,7 @@ struct ScanState {
   bool hasResult = false;
   String result = "";
   unsigned long startTime = 0;
+  unsigned long resultTimestamp = 0;
   String band = "";
   String csvFilename = "";
   unsigned long expectedDurationMs = 0;
@@ -755,10 +756,35 @@ void handleScanStart() {
   String band = server.arg("band");
   if (band == "") band = runtimeConfig.band2ghz;
 
-  // Abort if a scan is already running
+  // Check if a scan is already running
   if (scanState.isScanning) {
-    server.send(200, "application/json", "{\"status\":\"already_scanning\"}");
-    return;
+    unsigned long elapsedMs = millis() - scanState.startTime;
+    unsigned long timeoutMs = scanState.resultTimeoutMs > 0 ? scanState.resultTimeoutMs
+                                                             : (static_cast<unsigned long>(runtimeConfig.scanDurationSeconds) * 1000UL + SCAN_RESULT_GRACE_MS + SCAN_POLL_INTERVAL_MS);
+
+    // If the scan is too old, reset it (cleanup abandoned scans)
+    if (elapsedMs > timeoutMs) {
+      Serial.printf("Scan state expired (elapsed: %lu ms, timeout: %lu ms) - resetting\n", elapsedMs, timeoutMs);
+      scanState.isScanning = false;
+      scanState.hasResult = false;
+      scanState.result = "";
+      removeTmpfs();
+      // Continue with new scan below
+    } else {
+      // Scan is still valid, return info to client
+      StaticJsonDocument<256> doc;
+      doc["status"] = "already_scanning";
+      doc["elapsed_ms"] = elapsedMs;
+      doc["duration_ms"] = scanState.expectedDurationMs;
+      doc["min_ready_ms"] = scanState.minReadyMs;
+      doc["timeout_ms"] = scanState.resultTimeoutMs;
+      doc["poll_interval_ms"] = scanState.pollIntervalMs;
+      doc["csv_filename"] = scanState.csvFilename;
+      String response;
+      serializeJson(doc, response);
+      server.send(200, "application/json", response);
+      return;
+    }
   }
 
   String wlanId;
@@ -786,10 +812,11 @@ void handleScanStart() {
     return;
   }
 
-  // Update scan state before triggering
+  // Update scan state before triggering (clear any cached results)
   scanState.isScanning = true;
   scanState.hasResult = false;
   scanState.result = "";
+  scanState.resultTimestamp = 0;
   scanState.startTime = millis();
   scanState.band = band;
   scanState.csvFilename = SCAN_CSV_FILENAME;
@@ -829,15 +856,25 @@ void handleScanStart() {
 
 void handleScanResult() {
   if (!ensureOperationAllowed()) return;
+
   // Serve cached result if one exists
   if (scanState.hasResult) {
-    server.send(200, "application/json", scanState.result);
+    unsigned long cacheAge = millis() - scanState.resultTimestamp;
 
-    // Clear cached result after serving
-    scanState.hasResult = false;
-    scanState.result = "";
-    scanState.isScanning = false;
-    return;
+    // Check if cache is still valid
+    if (cacheAge <= SCAN_RESULT_CACHE_MS) {
+      // Cache still valid, serve result (can be retrieved multiple times)
+      server.send(200, "application/json", scanState.result);
+      return;
+    } else {
+      // Cache expired, clean up
+      Serial.printf("Scan result cache expired (age: %lu ms) - cleaning up\n", cacheAge);
+      scanState.hasResult = false;
+      scanState.result = "";
+      scanState.isScanning = false;
+      removeTmpfs();
+      // Fall through to "no_result" response
+    }
   }
 
   // If no scan is running, return informative status
@@ -869,7 +906,8 @@ void handleScanResult() {
 
   // Scan is between 4-10 seconds old - check if the CSV is available
   // IMPORTANT: no busy waiting, just a quick check
-  String fileResponse = mikrotikRequest("GET", "/file");
+  // Use short timeout to avoid blocking too long
+  String fileResponse = mikrotikRequest("GET", "/file", "", 2000);
   DynamicJsonDocument filesDoc(JSON_BUFFER_FILE_LIST);
   DeserializationError error = deserializeJson(filesDoc, fileResponse);
 
@@ -925,15 +963,16 @@ void handleScanResult() {
   String output;
   serializeJson(responseDoc, output);
 
+  // Cache result so multiple clients can retrieve it
+  scanState.result = output;
+  scanState.hasResult = true;
+  scanState.resultTimestamp = millis();
+  scanState.isScanning = false;
+
   // Send result
   server.send(200, "application/json", output);
 
-  // Cleanup scan state
-  scanState.isScanning = false;
-  scanState.hasResult = false;
-  scanState.result = "";
-
-  // Delete CSV file
+  // Delete CSV file (no longer needed, result is cached)
   if (fileId.length() > 0) {
     DynamicJsonDocument removeDoc(JSON_BUFFER_DISK_MUTATION);
     removeDoc["numbers"] = fileId;
@@ -942,7 +981,7 @@ void handleScanResult() {
     mikrotikRequest("POST", "/file/remove", removeBody);
   }
 
-  // Remove tmpfs
+  // Remove tmpfs (cleanup MikroTik filesystem)
   removeTmpfs();
 }
 
@@ -1211,6 +1250,11 @@ void setup() {
       Serial.print("IP address: ");
       Serial.println(WiFi.localIP());
       lastReconnectAttempt = millis();
+
+      // Cleanup any leftover tmpfs from previous session
+      Serial.println("Checking for leftover tmpfs from previous session...");
+      removeTmpfs();
+
       if (OTA_ENABLE) {
         setupArduinoOTA();
       }
