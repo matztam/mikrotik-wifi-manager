@@ -36,6 +36,13 @@
                     <label class="connect-label" for="password-input" data-i18n="label.password">label.password</label>
                     <input type="text" id="password-input" class="input-field" placeholder="input.password.placeholder.required" data-i18n-placeholder="input.password.placeholder.required">
                 </div>
+                <div class="connect-row" id="specific-ap-field" style="display: none;">
+                    <label class="checkbox-inline">
+                        <input type="checkbox" id="connect-to-specific-ap">
+                        <span data-i18n="label.connectToSpecificAp">label.connectToSpecificAp</span>
+                    </label>
+                    <div id="ap-mac-address" class="connect-value" style="margin-top: 8px; display: none; font-family: monospace; color: #666;">-</div>
+                </div>
                 <div class="button-group">
                     <button id="connect-btn" class="btn btn-success" data-i18n="button.connect">button.connect</button>
                     <button id="cancel-btn" class="btn btn-secondary" data-i18n="button.cancel">button.cancel</button>

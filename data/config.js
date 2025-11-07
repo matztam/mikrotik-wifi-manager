@@ -180,10 +180,12 @@ function fillForm(data) {
     const mikrotikClearPass = document.getElementById('mikrotik-clear-password');
     const mikrotikClearToken = document.getElementById('mikrotik-clear-token');
     const scanDurationInput = document.getElementById('scan-duration');
+    const stationRoamingCheckbox = document.getElementById('station-roaming');
 
     const currentBand2 = data.bands?.band_2ghz || '';
     const currentBand5 = data.bands?.band_5ghz || '';
     const currentScanDuration = data.scan?.duration_seconds || '';
+    const currentStationRoaming = data.wireless?.station_roaming || false;
 
     const ensureOptions = (selectEl, options, currentValue) => {
         selectEl.innerHTML = '';
@@ -222,6 +224,7 @@ function fillForm(data) {
     if (mikrotikClearPass) mikrotikClearPass.checked = false;
     if (mikrotikClearToken) mikrotikClearToken.checked = false;
     if (scanDurationInput) scanDurationInput.value = currentScanDuration || '';
+    if (stationRoamingCheckbox) stationRoamingCheckbox.checked = currentStationRoaming;
 
     setStatusMessage(data);
 }
@@ -330,6 +333,18 @@ function buildSettingsPayload() {
     }
     if (Object.keys(scan).length > 0) {
         payload.scan = scan;
+    }
+
+    const wireless = {};
+    const stationRoamingCheckbox = document.getElementById('station-roaming');
+    if (stationRoamingCheckbox) {
+        const newRoaming = stationRoamingCheckbox.checked;
+        if (newRoaming !== (settingsSnapshot.wireless?.station_roaming || false)) {
+            wireless.station_roaming = newRoaming;
+        }
+    }
+    if (Object.keys(wireless).length > 0) {
+        payload.wireless = wireless;
     }
 
     return Object.keys(payload).length > 0 ? payload : null;

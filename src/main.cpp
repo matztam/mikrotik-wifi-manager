@@ -41,6 +41,7 @@ struct RuntimeConfig {
   String band2ghz;
   String band5ghz;
   int scanDurationSeconds;
+  bool stationRoaming;
 };
 
 RuntimeConfig runtimeConfig;
@@ -105,6 +106,7 @@ void applyDefaultConfig(RuntimeConfig& cfg) {
   cfg.band2ghz = BAND_2GHZ;
   cfg.band5ghz = BAND_5GHZ;
   cfg.scanDurationSeconds = SCAN_DURATION_SECONDS;
+  cfg.stationRoaming = STATION_ROAMING_DEFAULT;
 }
 
 bool loadRuntimeConfigFromFile() {
@@ -155,6 +157,9 @@ bool loadRuntimeConfigFromFile() {
     runtimeConfig.scanDurationSeconds = SCAN_DURATION_SECONDS;
   }
 
+  JsonObject wirelessObj = doc["wireless"].as<JsonObject>();
+  runtimeConfig.stationRoaming = wirelessObj["station_roaming"] | runtimeConfig.stationRoaming;
+
   return true;
 }
 
@@ -182,6 +187,9 @@ bool saveRuntimeConfigToFile() {
 
   JsonObject scanObj = doc.createNestedObject("scan");
   scanObj["duration_seconds"] = runtimeConfig.scanDurationSeconds;
+
+  JsonObject wirelessObj = doc.createNestedObject("wireless");
+  wirelessObj["station_roaming"] = runtimeConfig.stationRoaming;
 
   File file = LittleFS.open(CONFIG_FILE_PATH, "w");
   if (!file) {
@@ -431,6 +439,114 @@ String ensureSecurityProfile(String ssid, String password, bool requiresPassword
   }
 }
 
+// ==================== CONNECTION LIST MANAGEMENT ====================
+
+const char* CONNECT_LIST_COMMENT_PREFIX = "wifi-manager:ssid=";
+
+// Disable all connect-list entries
+void disableAllConnectionLists() {
+  String response = mikrotikRequest("GET", "/interface/wireless/connect-list");
+  DynamicJsonDocument doc(JSON_BUFFER_SECURITY_PROFILES);
+  DeserializationError error = deserializeJson(doc, response);
+
+  if (error) {
+    Serial.printf("  ERROR: Failed to parse connect-list: %s\n", error.c_str());
+    return;
+  }
+
+  if (doc.is<JsonArray>()) {
+    for (JsonObject entry : doc.as<JsonArray>()) {
+      String comment = entry["comment"] | "";
+      if (comment.startsWith(CONNECT_LIST_COMMENT_PREFIX)) {
+        String entryId = entry[".id"] | "";
+        if (entryId.length() > 0) {
+          Serial.printf("  Disabling connect-list entry: %s\n", entryId.c_str());
+          mikrotikRequest("PATCH", "/interface/wireless/connect-list/" + entryId, "{\"disabled\":\"yes\"}");
+        }
+      }
+    }
+  }
+}
+
+// Delete connect-list for specific SSID
+void deleteConnectionList(String ssid) {
+  String comment = String(CONNECT_LIST_COMMENT_PREFIX) + ssid;
+  String response = mikrotikRequest("GET", "/interface/wireless/connect-list");
+  DynamicJsonDocument doc(JSON_BUFFER_SECURITY_PROFILES);
+  DeserializationError error = deserializeJson(doc, response);
+
+  if (error) {
+    Serial.printf("  ERROR: Failed to parse connect-list: %s\n", error.c_str());
+    return;
+  }
+
+  if (doc.is<JsonArray>()) {
+    for (JsonObject entry : doc.as<JsonArray>()) {
+      String entryComment = entry["comment"] | "";
+      if (entryComment == comment) {
+        String entryId = entry[".id"] | "";
+        if (entryId.length() > 0) {
+          Serial.printf("  Deleting connect-list for SSID: %s\n", ssid.c_str());
+          mikrotikRequest("DELETE", "/interface/wireless/connect-list/" + entryId, "");
+        }
+      }
+    }
+  }
+}
+
+// Ensure connection list exists for specific AP
+String ensureConnectionList(String ssid, String macAddress, String interfaceName, String securityProfile) {
+  String comment = String(CONNECT_LIST_COMMENT_PREFIX) + ssid;
+
+  // First, disable all other connect-lists
+  disableAllConnectionLists();
+
+  // Check if entry already exists
+  String response = mikrotikRequest("GET", "/interface/wireless/connect-list");
+  DynamicJsonDocument doc(JSON_BUFFER_SECURITY_PROFILES);
+  DeserializationError error = deserializeJson(doc, response);
+
+  if (error) {
+    Serial.printf("  ERROR: Failed to parse connect-list: %s\n", error.c_str());
+    return "";
+  }
+
+  String existingId = "";
+  if (doc.is<JsonArray>()) {
+    for (JsonObject entry : doc.as<JsonArray>()) {
+      String entryComment = entry["comment"] | "";
+      if (entryComment == comment) {
+        existingId = entry[".id"] | "";
+        break;
+      }
+    }
+  }
+
+  // Build payload
+  DynamicJsonDocument payloadDoc(JSON_BUFFER_CONNECT_PAYLOAD);
+  payloadDoc["interface"] = interfaceName;
+  payloadDoc["ssid"] = ssid;
+  payloadDoc["mac-address"] = macAddress;
+  payloadDoc["security-profile"] = securityProfile;
+  payloadDoc["comment"] = comment;
+  payloadDoc["disabled"] = "no";
+
+  String payload;
+  serializeJson(payloadDoc, payload);
+
+  if (existingId.length() > 0) {
+    // Update existing entry
+    Serial.printf("  Updating connect-list for SSID: %s, MAC: %s\n", ssid.c_str(), macAddress.c_str());
+    mikrotikRequest("PATCH", "/interface/wireless/connect-list/" + existingId, payload);
+    return existingId;
+  } else {
+    // Create new entry
+    Serial.printf("  Creating connect-list for SSID: %s, MAC: %s\n", ssid.c_str(), macAddress.c_str());
+    mikrotikRequest("POST", "/interface/wireless/connect-list/add", payload);
+    return comment;
+  }
+}
+
 // ==================== TMPFS MANAGEMENT ====================
 
 bool ensureTmpfs() {
@@ -533,6 +649,9 @@ void handleSettingsGet() {
   JsonObject scanObj = doc.createNestedObject("scan");
   scanObj["duration_seconds"] = runtimeConfig.scanDurationSeconds;
 
+  JsonObject wirelessObj = doc.createNestedObject("wireless");
+  wirelessObj["station_roaming"] = runtimeConfig.stationRoaming;
+
   JsonObject statusObj = doc.createNestedObject("status");
   statusObj["wifi_connected"] = WiFi.status() == WL_CONNECTED;
   statusObj["captive_portal"] = captivePortalActive;
@@ -557,6 +676,7 @@ void handleSettingsUpdate() {
   bool mikrotikChanged = false;
   bool bandsChanged = false;
   bool scanChanged = false;
+  bool wirelessChanged = false;
 
   JsonObject wifiObj = doc["wifi"].as<JsonObject>();
   if (!wifiObj.isNull()) {
@@ -631,7 +751,15 @@ void handleSettingsUpdate() {
     }
   }
 
-  if (!(wifiChanged || mikrotikChanged || bandsChanged)) {
+  JsonObject wirelessObj = doc["wireless"].as<JsonObject>();
+  if (!wirelessObj.isNull()) {
+    if (wirelessObj.containsKey("station_roaming")) {
+      runtimeConfig.stationRoaming = wirelessObj["station_roaming"] | runtimeConfig.stationRoaming;
+      wirelessChanged = true;
+    }
+  }
+
+  if (!(wifiChanged || mikrotikChanged || bandsChanged || wirelessChanged)) {
     DynamicJsonDocument response(128);
     response["success"] = true;
     response["wifi_changed"] = false;
@@ -661,6 +789,7 @@ void handleSettingsUpdate() {
   response["mikrotik_changed"] = mikrotikChanged;
   response["bands_changed"] = bandsChanged;
   response["scan_changed"] = scanChanged;
+  response["wireless_changed"] = wirelessChanged;
   response["captive_portal"] = captivePortalActive;
 
   String output;
@@ -998,6 +1127,8 @@ void handleConnect() {
   bool requiresPassword = doc["requiresPassword"] | true;
   bool known = doc["known"] | false;
   String profileName = doc["profileName"] | "";
+  bool connectToSpecificAp = doc["connectToSpecificAp"] | false;
+  String apMacAddress = doc["apMacAddress"] | "";
 
   // Create or update security profile
   String profileNameResult = ensureSecurityProfile(ssid, password, requiresPassword, known, profileName);
@@ -1009,18 +1140,45 @@ void handleConnect() {
     return;
   }
 
-  // Configure interface
-  DynamicJsonDocument configDoc(JSON_BUFFER_CONNECT_PAYLOAD);
-  configDoc["mode"] = "station";
-  configDoc["ssid"] = ssid;
-  configDoc["band"] = band;
-  configDoc["security-profile"] = profileNameResult;
-  configDoc["disabled"] = "no";
+  String wlanName = runtimeConfig.mikrotikWlanInterface;
 
-  String config;
-  serializeJson(configDoc, config);
+  // Handle Connection List
+  if (connectToSpecificAp && apMacAddress.length() > 0) {
+    // Connect to specific AP using Connection List
+    Serial.println("  Connecting to specific AP via Connection List");
+    ensureConnectionList(ssid, apMacAddress, wlanName, profileNameResult);
 
-  String response = mikrotikRequest("PATCH", "/interface/wireless/" + wlanId, config);
+    // Configure interface with station-roaming disabled (required for connect-list)
+    DynamicJsonDocument configDoc(JSON_BUFFER_CONNECT_PAYLOAD);
+    configDoc["mode"] = "station";
+    configDoc["band"] = band;
+    configDoc["security-profile"] = profileNameResult;
+    configDoc["station-roaming"] = "disabled";
+    configDoc["disabled"] = "no";
+
+    String config;
+    serializeJson(configDoc, config);
+    mikrotikRequest("PATCH", "/interface/wireless/" + wlanId, config);
+  } else {
+    // Normal connection (no specific AP)
+    Serial.println("  Connecting to any AP for SSID");
+
+    // Delete any existing connection list for this SSID
+    deleteConnectionList(ssid);
+
+    // Configure interface with user's station-roaming preference
+    DynamicJsonDocument configDoc(JSON_BUFFER_CONNECT_PAYLOAD);
+    configDoc["mode"] = "station";
+    configDoc["ssid"] = ssid;
+    configDoc["band"] = band;
+    configDoc["security-profile"] = profileNameResult;
+    configDoc["station-roaming"] = runtimeConfig.stationRoaming ? "enabled" : "disabled";
+    configDoc["disabled"] = "no";
+
+    String config;
+    serializeJson(configDoc, config);
+    mikrotikRequest("PATCH", "/interface/wireless/" + wlanId, config);
+  }
 
   server.send(200, "application/json", "{\"success\":true}");
 }
@@ -1097,6 +1255,9 @@ void handleDisconnect() {
     server.send(404, "application/json", "{\"error\":\"Configured WLAN interface not found\"}");
     return;
   }
+
+  // Disable all connection lists (keep them for reconnection, but disable them)
+  disableAllConnectionLists();
 
   mikrotikRequest("PATCH", "/interface/wireless/" + wlanId, "{\"disabled\":\"yes\"}");
   server.send(200, "application/json", "{\"success\":true}");
