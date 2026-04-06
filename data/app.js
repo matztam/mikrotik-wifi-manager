@@ -580,6 +580,12 @@ function setBandSelection(band, { triggerScan = false } = {}) {
     renderNetworkList();
 
     if (triggerScan && (changed || !getNetworksForCurrentBand().length)) {
+        // When band changes, reset auto-scan timer to avoid scan conflicts
+        if (changed) {
+            disableAutoScan();
+            state.isScanning = false;  // Reset scanning state
+            enableAutoScan(true);  // Restart auto-scan (skip immediate scan)
+        }
         scan(false);
     }
 }

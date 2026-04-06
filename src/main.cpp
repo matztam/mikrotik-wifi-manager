@@ -547,66 +547,7 @@ String ensureConnectionList(String ssid, String macAddress, String interfaceName
   }
 }
 
-// ==================== TMPFS MANAGEMENT ====================
-
-bool ensureTmpfs() {
-  String response = mikrotikRequest("GET", "/disk");
-  DynamicJsonDocument doc(JSON_BUFFER_DISK);
-  DeserializationError error = deserializeJson(doc, response);
-
-  if (error) return false;
-
-  // Check if tmp1 already exists
-  if (doc.is<JsonArray>()) {
-    for (JsonObject disk : doc.as<JsonArray>()) {
-      String mountPoint = disk["mount-point"] | "";
-      String slot = disk["slot"] | "";
-      if (mountPoint == "tmp1" || slot == "tmp1") {
-        return true;
-      }
-    }
-  }
-
-  // tmpfs not found, create it
-  Serial.println("  tmpfs missing, creating...");
-  DynamicJsonDocument createDoc(JSON_BUFFER_DISK_MUTATION);
-  createDoc["type"] = "tmpfs";
-  createDoc["tmpfs-max-size"] = "1";
-  String createBody;
-  serializeJson(createDoc, createBody);
-
-  mikrotikRequest("POST", "/disk/add", createBody);
-  Serial.println("  tmpfs created");
-  return true;
-}
-
-void removeTmpfs() {
-  String response = mikrotikRequest("GET", "/disk");
-  DynamicJsonDocument doc(JSON_BUFFER_DISK);
-  DeserializationError error = deserializeJson(doc, response);
-
-  if (error) return;
-
-  if (doc.is<JsonArray>()) {
-    for (JsonObject disk : doc.as<JsonArray>()) {
-      String mountPoint = disk["mount-point"] | "";
-      String slot = disk["slot"] | "";
-      if (mountPoint == "tmp1" || slot == "tmp1") {
-        String diskId = disk[".id"] | "";
-        if (diskId.length() > 0) {
-          Serial.println("  Deleting tmpfs...");
-          DynamicJsonDocument removeDoc(JSON_BUFFER_DISK_MUTATION);
-          removeDoc["numbers"] = diskId;
-          String removeBody;
-          serializeJson(removeDoc, removeBody);
-          mikrotikRequest("POST", "/disk/remove", removeBody);
-          Serial.println("  tmpfs removed");
-        }
-        return;
-      }
-    }
-  }
-}
+// Note: tmpfs management removed - writing directly to main storage instead
 
 // ==================== API HANDLER ====================
 
@@ -897,7 +838,6 @@ void handleScanStart() {
       scanState.isScanning = false;
       scanState.hasResult = false;
       scanState.result = "";
-      removeTmpfs();
       // Continue with new scan below
     } else {
       // Scan is still valid, return info to client
@@ -934,13 +874,6 @@ void handleScanStart() {
     delay(500);
   }
 
-  // Ensure tmpfs exists
-  if (!ensureTmpfs()) {
-    Serial.println("  Warning: tmpfs unavailable");
-    server.send(500, "application/json", "{\"error\":\"tmpfs not available\"}");
-    return;
-  }
-
   // Update scan state before triggering (clear any cached results)
   scanState.isScanning = true;
   scanState.hasResult = false;
@@ -959,7 +892,7 @@ void handleScanStart() {
   // Trigger scan on MikroTik with a very short timeout
   // Response is irrelevant; MikroTik continues the scan and CSV is fetched later
   DynamicJsonDocument scanDoc(JSON_BUFFER_SCAN_REQUEST);
-  scanDoc[".id"] = wlanName;
+  scanDoc[".id"] = wlanId;  // Use interface ID (e.g. "*3"), not name (e.g. "wlan2")
   scanDoc["duration"] = String(runtimeConfig.scanDurationSeconds);
   scanDoc["save-file"] = scanState.csvFilename;
 
@@ -983,6 +916,128 @@ void handleScanStart() {
   server.send(200, "application/json", response);
 }
 
+// Helper: Read FTP response line
+String ftpReadLine(WiFiClient &client, unsigned long timeoutMs = 2000) {
+  unsigned long start = millis();
+  while (!client.available() && (millis() - start < timeoutMs)) {
+    delay(10);
+  }
+  if (client.available()) {
+    return client.readStringUntil('\n');
+  }
+  return "";
+}
+
+// Download file via FTP and stream directly to output WiFiClient
+// Returns number of bytes streamed, or 0 on error
+size_t ftpDownloadFileStream(const char* filename, WiFiClient &outputClient, unsigned long timeoutMs = 8000) {
+  WiFiClient ftpClient;
+  WiFiClient ftpDataClient;
+
+  Serial.printf("FTP: Connecting to %s:21...\n", runtimeConfig.mikrotikIp.c_str());
+
+  if (!ftpClient.connect(runtimeConfig.mikrotikIp.c_str(), 21)) {
+    Serial.println("FTP: Connection failed");
+    return 0;
+  }
+
+  ftpClient.setTimeout(2000);
+
+  // Read welcome
+  String welcome = ftpReadLine(ftpClient);
+  Serial.printf("FTP: %s\n", welcome.c_str());
+
+  // Login
+  ftpClient.printf("USER %s\r\n", runtimeConfig.mikrotikUser.c_str());
+  ftpReadLine(ftpClient);
+
+  ftpClient.printf("PASS %s\r\n", runtimeConfig.mikrotikPass.c_str());
+  String loginResp = ftpReadLine(ftpClient);
+  if (!loginResp.startsWith("230")) {
+    Serial.printf("FTP: Login failed: %s\n", loginResp.c_str());
+    ftpClient.stop();
+    return 0;
+  }
+
+  // Enter passive mode
+  ftpClient.print("PASV\r\n");
+  String pasvResponse = ftpReadLine(ftpClient);
+  Serial.printf("FTP PASV: %s\n", pasvResponse.c_str());
+
+  // Parse PASV response: 227 Entering Passive Mode (h1,h2,h3,h4,p1,p2)
+  int dataPort = 0;
+  int startIdx = pasvResponse.indexOf('(');
+  int endIdx = pasvResponse.indexOf(')');
+  if (startIdx > 0 && endIdx > startIdx) {
+    String portInfo = pasvResponse.substring(startIdx + 1, endIdx);
+    int lastComma = portInfo.lastIndexOf(',');
+    int secondLastComma = portInfo.lastIndexOf(',', lastComma - 1);
+    if (lastComma > 0 && secondLastComma > 0) {
+      int p1 = portInfo.substring(secondLastComma + 1, lastComma).toInt();
+      int p2 = portInfo.substring(lastComma + 1).toInt();
+      dataPort = p1 * 256 + p2;
+      Serial.printf("FTP: Data port: %d\n", dataPort);
+    }
+  }
+
+  if (dataPort == 0) {
+    Serial.println("FTP: Failed to parse PASV response");
+    ftpClient.stop();
+    return 0;
+  }
+
+  // Connect data channel
+  if (!ftpDataClient.connect(runtimeConfig.mikrotikIp.c_str(), dataPort)) {
+    Serial.println("FTP: Data connection failed");
+    ftpClient.stop();
+    return 0;
+  }
+
+  // Request file
+  ftpClient.printf("RETR %s\r\n", filename);
+  String retrResp = ftpReadLine(ftpClient);
+  Serial.printf("FTP RETR: %s\n", retrResp.c_str());
+  if (!retrResp.startsWith("150") && !retrResp.startsWith("125")) {
+    Serial.println("FTP: RETR failed");
+    ftpDataClient.stop();
+    ftpClient.stop();
+    return 0;
+  }
+
+  // Stream file content directly to output client
+  unsigned long start = millis();
+  ftpDataClient.setTimeout(1000);
+  size_t totalBytes = 0;
+  uint8_t buffer[512];
+
+  while (ftpDataClient.connected() || ftpDataClient.available()) {
+    if (millis() - start > timeoutMs) {
+      Serial.println("FTP: Download timeout");
+      break;
+    }
+
+    if (ftpDataClient.available()) {
+      int bytesRead = ftpDataClient.read(buffer, sizeof(buffer));
+      if (bytesRead > 0) {
+        outputClient.write(buffer, bytesRead);
+        totalBytes += bytesRead;
+        start = millis();  // Reset timeout
+      }
+    } else {
+      delay(1);
+    }
+  }
+
+  Serial.printf("FTP: Streamed %d bytes\n", totalBytes);
+
+  ftpDataClient.stop();
+  ftpReadLine(ftpClient);  // Read transfer complete message
+  ftpClient.print("QUIT\r\n");
+  ftpClient.stop();
+
+  return totalBytes;
+}
+
 void handleScanResult() {
   if (!ensureOperationAllowed()) return;
 
@@ -1001,7 +1056,6 @@ void handleScanResult() {
       scanState.hasResult = false;
       scanState.result = "";
       scanState.isScanning = false;
-      removeTmpfs();
       // Fall through to "no_result" response
     }
   }
@@ -1024,94 +1078,192 @@ void handleScanResult() {
     return;
   }
 
-  // Timeout guard
+  // Timeout guard - only after minimum scan duration has passed
   if (elapsedMs > timeoutMs) {
     Serial.printf("  Scan timeout after %lu ms (limit %lu ms)\n", elapsedMs, timeoutMs);
     scanState.isScanning = false;
-    removeTmpfs();
-    server.send(200, "application/json", "{\"status\":\"timeout\",\"error\":\"Scan timeout\"}");
+    server.send(200, "application/json", "{\"status\":\"timeout\",\"error\":\"Scan result file not found after timeout - check MikroTik scan configuration\"}");
     return;
   }
 
-  // Scan is between 4-10 seconds old - check if the CSV is available
-  // IMPORTANT: no busy waiting, just a quick check
-  // Use short timeout to avoid blocking too long
-  String fileResponse = mikrotikRequest("GET", "/file", "", 2000);
-  DynamicJsonDocument filesDoc(JSON_BUFFER_FILE_LIST);
-  DeserializationError error = deserializeJson(filesDoc, fileResponse);
-
-  String csvContent = "";
-  String fileId = "";
-
+  // Try to download CSV directly via FTP (no need to check via REST API first)
   String expectedFile = scanState.csvFilename.length() > 0 ? scanState.csvFilename : String(SCAN_CSV_FILENAME);
+  Serial.printf("  Attempting FTP download of: %s\n", expectedFile.c_str());
 
-  if (!error && filesDoc.is<JsonArray>()) {
-    for (JsonObject file : filesDoc.as<JsonArray>()) {
-      String fileName = file["name"] | "";
-      if (fileName == expectedFile) {
-        csvContent = file["contents"] | "";
-        fileId = file[".id"] | "";
-        if (csvContent.length() > 0) {
-          break;
+  // Get profiles for metadata
+  DynamicJsonDocument profilesDoc(JSON_BUFFER_SCAN_RESPONSE);
+  String profilesResponse = mikrotikRequest("GET", "/interface/wireless/security-profiles");
+  deserializeJson(profilesDoc, profilesResponse);
+
+  // Build profiles JSON manually
+  String profilesJson = "[";
+  bool firstProfile = true;
+  if (profilesDoc.is<JsonArray>()) {
+    for (JsonObject profile : profilesDoc.as<JsonArray>()) {
+      String comment = profile["comment"] | "";
+      if (comment.startsWith(PROFILE_COMMENT_PREFIX)) {
+        if (!firstProfile) profilesJson += ",";
+        firstProfile = false;
+
+        String ssid = comment.substring(strlen(PROFILE_COMMENT_PREFIX));
+        String name = profile["name"] | "";
+        String mode = profile["mode"] | "";
+        String authTypes = profile["authentication-types"] | "";
+
+        // Escape JSON strings
+        ssid.replace("\"", "\\\"");
+        name.replace("\"", "\\\"");
+        mode.replace("\"", "\\\"");
+        authTypes.replace("\"", "\\\"");
+
+        profilesJson += "{";
+        profilesJson += "\"ssid\":\"" + ssid + "\",";
+        profilesJson += "\"name\":\"" + name + "\",";
+        profilesJson += "\"mode\":\"" + mode + "\",";
+        profilesJson += "\"authentication-types\":\"" + authTypes + "\"";
+        profilesJson += "}";
+      }
+    }
+  }
+  profilesJson += "]";
+
+  // First, check if CSV file exists by trying a quick FTP download
+  // We must check BEFORE sending HTTP headers!
+  size_t csvBytes = 0;
+  bool ftpConnected = false;
+  WiFiClient ftpClient;
+  WiFiClient ftpDataClient;
+  int dataPort = 0;
+
+  {
+    // Quick FTP check
+    if (ftpClient.connect(runtimeConfig.mikrotikIp.c_str(), 21)) {
+      ftpClient.setTimeout(2000);
+      ftpReadLine(ftpClient);  // Welcome
+      ftpClient.printf("USER %s\r\n", runtimeConfig.mikrotikUser.c_str());
+      ftpReadLine(ftpClient);
+      ftpClient.printf("PASS %s\r\n", runtimeConfig.mikrotikPass.c_str());
+      String loginResp = ftpReadLine(ftpClient);
+
+      if (loginResp.startsWith("230")) {
+        ftpClient.print("PASV\r\n");
+        String pasvResp = ftpReadLine(ftpClient);
+
+        int startIdx = pasvResp.indexOf('(');
+        int endIdx = pasvResp.indexOf(')');
+        if (startIdx > 0 && endIdx > startIdx) {
+          String portInfo = pasvResp.substring(startIdx + 1, endIdx);
+          int lastComma = portInfo.lastIndexOf(',');
+          int secondLastComma = portInfo.lastIndexOf(',', lastComma - 1);
+          if (lastComma > 0 && secondLastComma > 0) {
+            int p1 = portInfo.substring(secondLastComma + 1, lastComma).toInt();
+            int p2 = portInfo.substring(lastComma + 1).toInt();
+            dataPort = p1 * 256 + p2;
+          }
+        }
+
+        if (dataPort > 0 && ftpDataClient.connect(runtimeConfig.mikrotikIp.c_str(), dataPort)) {
+          ftpClient.printf("RETR %s\r\n", expectedFile.c_str());
+          String retrResp = ftpReadLine(ftpClient);
+
+          // Check if file exists (150 = file status ok, starting transfer)
+          if (retrResp.startsWith("150")) {
+            ftpConnected = true;
+            // Keep connections open for streaming
+          } else {
+            // File doesn't exist yet
+            ftpDataClient.stop();
+            ftpClient.print("QUIT\r\n");
+            ftpClient.stop();
+            Serial.println("  CSV not available yet - returning pending");
+            scanState.isScanning = true;  // Keep scanning state
+            server.send(200, "application/json", "{\"status\":\"pending\"}");
+            return;
+          }
         }
       }
     }
   }
 
-  // If CSV not ready yet, return pending (frontend will poll again)
-  if (csvContent.length() == 0) {
+  if (!ftpConnected) {
+    Serial.println("  FTP connection failed - returning pending");
+    scanState.isScanning = true;
     server.send(200, "application/json", "{\"status\":\"pending\"}");
     return;
   }
 
-  // CSV is available; build response payload
-  DynamicJsonDocument profilesDoc(JSON_BUFFER_SCAN_RESPONSE);
-  String profilesResponse = mikrotikRequest("GET", "/interface/wireless/security-profiles");
-  deserializeJson(profilesDoc, profilesResponse);
+  // FTP is connected and file exists - now we can start streaming HTTP response
+  server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  server.send(200, "application/json", "");
 
-  DynamicJsonDocument responseDoc(JSON_BUFFER_SCAN_RESPONSE);
-  responseDoc["csv"] = csvContent;
-  responseDoc["band"] = scanState.band;
+  // Send JSON prefix
+  String band = scanState.band;
+  band.replace("\"", "\\\"");
+  server.sendContent("{\"csv\":\"");
 
-  // Attach profile info (frontend uses this to flag known networks)
-  JsonArray profiles = responseDoc.createNestedArray("profiles");
-  if (profilesDoc.is<JsonArray>()) {
-    for (JsonObject profile : profilesDoc.as<JsonArray>()) {
-      String comment = profile["comment"] | "";
-      if (comment.startsWith(PROFILE_COMMENT_PREFIX)) {
-        String ssid = comment.substring(strlen(PROFILE_COMMENT_PREFIX));
-        JsonObject p = profiles.createNestedObject();
-        p["ssid"] = ssid;
-        p["name"] = profile["name"] | "";
-        p["mode"] = profile["mode"];
-        p["authentication-types"] = profile["authentication-types"];
+  // Stream CSV via FTP (already connected), escaping special JSON characters on the fly
+  {
+    // Stream and escape
+    unsigned long start = millis();
+    uint8_t buffer[256];
+    String chunk;  // Accumulate escaped data before sending
+    chunk.reserve(512);  // Pre-allocate to reduce reallocations
+
+    while ((ftpDataClient.connected() || ftpDataClient.available()) && (millis() - start < 8000)) {
+      if (ftpDataClient.available()) {
+        int bytesRead = ftpDataClient.read(buffer, sizeof(buffer));
+        if (bytesRead > 0) {
+          // Escape JSON special characters: \ " \n \r \t
+          for (int i = 0; i < bytesRead; i++) {
+            char c = buffer[i];
+            if (c == '\\' || c == '\"') {
+              chunk += '\\';
+              chunk += c;
+            } else if (c == '\n') {
+              chunk += "\\n";
+            } else if (c == '\r') {
+              chunk += "\\r";
+            } else if (c == '\t') {
+              chunk += "\\t";
+            } else {
+              chunk += c;
+            }
+            csvBytes++;
+
+            // Send chunk every 256 bytes to avoid too much buffering
+            if (chunk.length() >= 256) {
+              server.sendContent(chunk);
+              chunk = "";
+            }
+          }
+          start = millis();
+        }
+      } else {
+        delay(1);
       }
     }
+
+    // Send any remaining data
+    if (chunk.length() > 0) {
+      server.sendContent(chunk);
+    }
+
+    ftpDataClient.stop();
+    ftpClient.print("QUIT\r\n");
+    ftpClient.stop();
   }
 
-  String output;
-  serializeJson(responseDoc, output);
+  Serial.printf("  Streamed %d CSV bytes\n", csvBytes);
 
-  // Cache result so multiple clients can retrieve it
-  scanState.result = output;
-  scanState.hasResult = true;
-  scanState.resultTimestamp = millis();
+  // Send JSON suffix
+  server.sendContent("\",\"band\":\"" + band + "\",\"profiles\":" + profilesJson + "}");
+
+  // Mark scan complete
   scanState.isScanning = false;
+  scanState.hasResult = false;  // Don't cache streamed responses
 
-  // Send result
-  server.send(200, "application/json", output);
-
-  // Delete CSV file (no longer needed, result is cached)
-  if (fileId.length() > 0) {
-    DynamicJsonDocument removeDoc(JSON_BUFFER_DISK_MUTATION);
-    removeDoc["numbers"] = fileId;
-    String removeBody;
-    serializeJson(removeDoc, removeBody);
-    mikrotikRequest("POST", "/file/remove", removeBody);
-  }
-
-  // Remove tmpfs (cleanup MikroTik filesystem)
-  removeTmpfs();
+  // Note: CSV file is kept on MikroTik for multiple clients to retrieve
+  // It will be overwritten on next scan (same filename)
 }
 
 void handleConnect() {
@@ -1411,10 +1563,6 @@ void setup() {
       Serial.print("IP address: ");
       Serial.println(WiFi.localIP());
       lastReconnectAttempt = millis();
-
-      // Cleanup any leftover tmpfs from previous session
-      Serial.println("Checking for leftover tmpfs from previous session...");
-      removeTmpfs();
 
       if (OTA_ENABLE) {
         setupArduinoOTA();
