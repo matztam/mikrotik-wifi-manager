@@ -47,6 +47,7 @@
     "scan.status.searching": "Searching for networks...",
     "label.ssid": "SSID",
     "label.password": "Password",
+    "label.autoScan": "Auto-Scan",
     "input.password.placeholder.required": "Enter password",
     "input.password.placeholder.optional": "Password (leave empty to use saved one)",
     "input.password.placeholder.none": "No password required",

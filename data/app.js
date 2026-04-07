@@ -580,10 +580,8 @@ function setBandSelection(band, { triggerScan = false } = {}) {
     renderNetworkList();
 
     if (triggerScan && (changed || !getNetworksForCurrentBand().length)) {
-        // When band changes, reset auto-scan timer to avoid scan conflicts
         if (changed) {
             disableAutoScan();
-            state.isScanning = false;  // Reset scanning state
             enableAutoScan(true);  // Restart auto-scan (skip immediate scan)
         }
         scan(false);
@@ -919,7 +917,6 @@ async function scan(auto = false, retryCount = 0) {
     const requestedBand = state.currentBand;
 
     if (!auto) {
-        state.allowAutoScan = true;
         document.getElementById('scan-status').style.display = 'block';
         const scanStatusText = document.querySelector('#scan-status [data-i18n="scan.status.searching"]');
         if (scanStatusText) {
@@ -1390,6 +1387,17 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Wire up buttons
     document.getElementById('scan-btn').onclick = () => scan(false);
+    const autoScanToggle = document.getElementById('auto-scan-toggle');
+    if (autoScanToggle) {
+        autoScanToggle.addEventListener('change', () => {
+            state.allowAutoScan = autoScanToggle.checked;
+            if (state.allowAutoScan) {
+                if (!state.isConnected) enableAutoScan(true);
+            } else {
+                disableAutoScan();
+            }
+        });
+    }
     document.getElementById('disconnect-btn').onclick = disconnect;
     document.getElementById('connect-btn').onclick = connect;
     document.getElementById('cancel-btn').onclick = hideConnectSection;
