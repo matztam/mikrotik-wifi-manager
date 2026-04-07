@@ -50,6 +50,7 @@
     "label.ssid": "SSID",
     "label.password": "Passwort",
     "label.connectToSpecificAp": "Mit diesem spezifischen Access Point verbinden",
+    "label.autoScan": "Auto-Scan",
     "input.password.placeholder.required": "Passwort eingeben",
     "input.password.placeholder.optional": "Passwort (leer lassen für gespeichertes)",
     "input.password.placeholder.none": "Keine Passworteingabe erforderlich",
