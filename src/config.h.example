@@ -16,11 +16,16 @@ const char* MIKROTIK_PASS = "";                // Basic Auth password
 // MikroTik WLAN interface name (e.g., "wlan1", "wlan2")
 const char* MIKROTIK_WLAN_INTERFACE = "wlan1";
 
-// Supported Wi-Fi bands (depends on hardware capabilities)
-// MikroTik Groove without AC: "2ghz-g/n" and "5ghz-a/n"
-// Newer hardware with AC: "2ghz-g/n" and "5ghz-a/n/ac"
-const char* BAND_2GHZ = "2ghz-b/g/n";      // Or 2ghz-g/n; 2ghz-n
-const char* BAND_5GHZ = "5ghz-a/n";      // Or "5ghz-a/n/ac" if the device supports it
+// Supported Wi-Fi bands and channel widths (adjust per hardware)
+//
+// RBGrooveGA-52HPacn (AC):   BAND_5GHZ = "5ghz-a/n/ac",  CHANNEL_WIDTH_5GHZ = "20/40/80mhz-XXXX"
+// RBGroove52HPn   (no AC):   BAND_5GHZ = "5ghz-a/n",     CHANNEL_WIDTH_5GHZ = "20/40mhz-XX"
+//
+// CHANNEL_WIDTH must always match the band — MikroTik rejects e.g. 80MHz on 2.4GHz or on a/n-only hardware.
+const char* BAND_2GHZ = "2ghz-b/g/n";
+const char* BAND_5GHZ = "5ghz-a/n";                 // Change to "5ghz-a/n/ac" for AC hardware
+const char* CHANNEL_WIDTH_2GHZ = "20/40mhz-XX";     // 2.4GHz supports max 40MHz
+const char* CHANNEL_WIDTH_5GHZ = "20/40mhz-XX";     // Change to "20/40/80mhz-XXXX" for AC hardware
 
 // Scan behaviour
 const int SCAN_DURATION_SECONDS = 5;        // MikroTik scan duration parameter
