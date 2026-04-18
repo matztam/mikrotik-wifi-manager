@@ -40,6 +40,8 @@ struct RuntimeConfig {
   String mikrotikWlanInterface;
   String band2ghz;
   String band5ghz;
+  String channelWidth2ghz;
+  String channelWidth5ghz;
   int scanDurationSeconds;
   bool stationRoaming;
 };
@@ -105,6 +107,8 @@ void applyDefaultConfig(RuntimeConfig& cfg) {
   cfg.mikrotikWlanInterface = MIKROTIK_WLAN_INTERFACE;
   cfg.band2ghz = BAND_2GHZ;
   cfg.band5ghz = BAND_5GHZ;
+  cfg.channelWidth2ghz = CHANNEL_WIDTH_2GHZ;
+  cfg.channelWidth5ghz = CHANNEL_WIDTH_5GHZ;
   cfg.scanDurationSeconds = SCAN_DURATION_SECONDS;
   cfg.stationRoaming = STATION_ROAMING_DEFAULT;
 }
@@ -150,6 +154,8 @@ bool loadRuntimeConfigFromFile() {
   JsonObject bandObj = doc["bands"].as<JsonObject>();
   runtimeConfig.band2ghz = bandObj["band_2ghz"] | runtimeConfig.band2ghz;
   runtimeConfig.band5ghz = bandObj["band_5ghz"] | runtimeConfig.band5ghz;
+  runtimeConfig.channelWidth2ghz = bandObj["channel_width_2ghz"] | runtimeConfig.channelWidth2ghz;
+  runtimeConfig.channelWidth5ghz = bandObj["channel_width_5ghz"] | runtimeConfig.channelWidth5ghz;
 
   JsonObject scanObj = doc["scan"].as<JsonObject>();
   runtimeConfig.scanDurationSeconds = scanObj["duration_seconds"] | runtimeConfig.scanDurationSeconds;
@@ -184,6 +190,8 @@ bool saveRuntimeConfigToFile() {
   JsonObject bandObj = doc.createNestedObject("bands");
   bandObj["band_2ghz"] = runtimeConfig.band2ghz;
   bandObj["band_5ghz"] = runtimeConfig.band5ghz;
+  bandObj["channel_width_2ghz"] = runtimeConfig.channelWidth2ghz;
+  bandObj["channel_width_5ghz"] = runtimeConfig.channelWidth5ghz;
 
   JsonObject scanObj = doc.createNestedObject("scan");
   scanObj["duration_seconds"] = runtimeConfig.scanDurationSeconds;
@@ -586,6 +594,8 @@ void handleSettingsGet() {
   JsonObject bandsObj = doc.createNestedObject("bands");
   bandsObj["band_2ghz"] = runtimeConfig.band2ghz;
   bandsObj["band_5ghz"] = runtimeConfig.band5ghz;
+  bandsObj["channel_width_2ghz"] = runtimeConfig.channelWidth2ghz;
+  bandsObj["channel_width_5ghz"] = runtimeConfig.channelWidth5ghz;
 
   JsonObject scanObj = doc.createNestedObject("scan");
   scanObj["duration_seconds"] = runtimeConfig.scanDurationSeconds;
@@ -675,6 +685,18 @@ void handleSettingsUpdate() {
       String newBand5 = bandsObj["band_5ghz"].as<String>();
       newBand5.trim();
       runtimeConfig.band5ghz = newBand5;
+      bandsChanged = true;
+    }
+    if (bandsObj.containsKey("channel_width_2ghz")) {
+      String newCw2 = bandsObj["channel_width_2ghz"].as<String>();
+      newCw2.trim();
+      runtimeConfig.channelWidth2ghz = newCw2;
+      bandsChanged = true;
+    }
+    if (bandsObj.containsKey("channel_width_5ghz")) {
+      String newCw5 = bandsObj["channel_width_5ghz"].as<String>();
+      newCw5.trim();
+      runtimeConfig.channelWidth5ghz = newCw5;
       bandsChanged = true;
     }
   }
@@ -868,6 +890,12 @@ void handleScanStart() {
   if (band.length() > 0 && currentBand != band) {
     DynamicJsonDocument bandDoc(JSON_BUFFER_SECURITY_PAYLOAD);
     bandDoc["band"] = band;
+    // Set matching channel-width to avoid invalid combinations (e.g. 80MHz on 2.4GHz)
+    bool is5ghz = band.startsWith("5ghz");
+    String channelWidth = is5ghz ? runtimeConfig.channelWidth5ghz : runtimeConfig.channelWidth2ghz;
+    if (channelWidth.length() > 0) {
+      bandDoc["channel-width"] = channelWidth;
+    }
     String bandPayload;
     serializeJson(bandDoc, bandPayload);
     mikrotikRequest("PATCH", "/interface/wireless/" + wlanId, bandPayload);
